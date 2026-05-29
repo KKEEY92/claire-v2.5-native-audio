@@ -12,7 +12,7 @@ google-auth-httplib2>=0.4
 google-auth-oauthlib>=1.0
 
 # ── LiveKit Voice Pipeline ────────────────────────────────────────────────────
-livekit-agents[google,deepgram,elevenlabs,silero]>=0.12
+livekit-agents[google]>=0.12
 
 # ── Utilities ─────────────────────────────────────────────────────────────────
 python-dotenv>=1.0
