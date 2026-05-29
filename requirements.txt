@@ -1,0 +1,18 @@
+# Claire V2 – Dependencies
+# Python 3.13+ (stable)
+# Install: .venv/bin/pip install -r requirements.txt
+
+# ── Vertex AI & Google Cloud ──────────────────────────────────────────────────
+vertexai>=1.71
+google-cloud-aiplatform>=1.71
+google-generativeai>=0.8
+google-api-python-client>=2.100
+google-auth>=2.30
+google-auth-httplib2>=0.4
+google-auth-oauthlib>=1.0
+
+# ── LiveKit Voice Pipeline ────────────────────────────────────────────────────
+livekit-agents[google,deepgram,elevenlabs,silero]>=0.12
+
+# ── Utilities ─────────────────────────────────────────────────────────────────
+python-dotenv>=1.0

@@ -1,0 +1,84 @@
+# ── SECURITY: NEVER COMMIT ───────────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+service_account.json
+*credentials*.json
+*secret*.json
+google-cloud-*.json
+
+# ── Python ────────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+*.egg
+pip-wheel-metadata/
+
+# ── Virtual Environments ──────────────────────────────────────────────────────
+.venv/
+venv/
+env/
+ENV/
+.python-version
+
+# ── Google Cloud / Vertex AI ──────────────────────────────────────────────────
+.gcloud/
+application_default_credentials.json
+
+# ── LiveKit ───────────────────────────────────────────────────────────────────
+*.lk
+livekit-*.json
+
+# ── Audio / Media Files ───────────────────────────────────────────────────────
+*.wav
+*.mp3
+*.mp4
+*.aac
+*.flac
+*.ogg
+*.stem
+*.stems
+*.nml
+
+# ── macOS ─────────────────────────────────────────────────────────────────────
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
+Icon?
+
+# ── IDE ───────────────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ── Logs & Runtime ───────────────────────────────────────────────────────────
+*.log
+logs/
+*.pid
+*.seed
+
+# ── Memory / Transcripts (persönliche Daten) ────────────────────────────────
+memory/
+transcripts/
+*.transcript
+wireless-log-*/
+
+# ── Docs (Vertraulich) ───────────────────────────────────────────────────────
+*.docx
+*.pdf
+Strategie_*.png
