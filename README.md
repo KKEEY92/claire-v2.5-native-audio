@@ -159,7 +159,7 @@ claire-v2/
 ### 1. Clone & Environment
 
 ```bash
-git clone https://github.com/kevinkuck/claire-v2.git
+git clone https://github.com/KKEEY92/claire-v2.git
 cd claire-v2
 python3.13 -m venv .venv
 source .venv/bin/activate
