@@ -12,7 +12,12 @@ google-auth-httplib2>=0.4
 google-auth-oauthlib>=1.0
 
 # ── LiveKit Voice Pipeline ────────────────────────────────────────────────────
+# Only Google stack — Deepgram/ElevenLabs/Silero removed for RAM optimization
 livekit-agents[google]>=0.12
 
 # ── Utilities ─────────────────────────────────────────────────────────────────
 python-dotenv>=1.0
+
+# Token server dependencies (run separately):
+# flask
+# livekit-api
