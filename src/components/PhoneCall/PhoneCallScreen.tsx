@@ -1,5 +1,6 @@
 import { FFTAnalyzer } from './FFTAnalyzer';
 import { NeonRing } from './NeonRing';
+import { disconnect } from '../../hooks/useLiveKit';
 import { useEmotionStore, type ConnectionState } from '../../stores/emotionStore';
 
 const STATUS_LABELS: Record<ConnectionState, string> = {
@@ -23,6 +24,11 @@ export function PhoneCallScreen({
     connectionState === 'connected'
       ? moodTag || STATUS_LABELS.connected
       : STATUS_LABELS[connectionState];
+
+  const handleHangUp = () => {
+    disconnect();
+    onEndCall();
+  };
 
   return (
     <div className="w-full h-full flex flex-col items-center justify-center gap-12 relative z-10">
@@ -53,7 +59,7 @@ export function PhoneCallScreen({
 
       <button
         type="button"
-        onClick={onEndCall}
+        onClick={handleHangUp}
         className="w-16 h-16 rounded-full bg-red-500/10 border border-red-500/30 flex items-center justify-center text-red-500 hover:bg-red-500/20 transition-colors cursor-pointer"
         aria-label="Anruf beenden"
       >

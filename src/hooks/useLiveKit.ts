@@ -5,10 +5,70 @@ import { useEmotionStore } from '../stores/emotionStore';
 const TOKEN_ENDPOINT =
   import.meta.env.VITE_LIVEKIT_TOKEN_ENDPOINT ?? '/token';
 
+const INITIAL_ENERGY = 0.65;
+
+/** Shared session refs so hang-up can tear down outside the hook instance. */
+const session = {
+  room: null as Room | null,
+  audioElements: [] as HTMLMediaElement[],
+  connectGeneration: 0,
+};
+
 interface UseLiveKitOptions {
   serverUrl: string;
   /** Session should stay active (user started a call). */
   sessionActive: boolean;
+}
+
+function resetStoreToInitial(): void {
+  const { setEnergy, setMoodTag, setConnected, setSpeaking, setConnectionState } =
+    useEmotionStore.getState();
+  setEnergy(INITIAL_ENERGY);
+  setMoodTag(null);
+  setConnected(false);
+  setSpeaking(false);
+  setConnectionState('idle');
+}
+
+function removeRemoteAudioElements(): void {
+  session.audioElements.forEach((el) => el.remove());
+  session.audioElements.length = 0;
+}
+
+async function stopLocalAudioTracks(room: Room): Promise<void> {
+  try {
+    await room.localParticipant.setMicrophoneEnabled(false);
+  } catch {
+    /* mic may already be off or room not fully connected */
+  }
+  room.localParticipant.trackPublications.forEach((publication) => {
+    publication.track?.stop();
+  });
+}
+
+function teardownRoom(): void {
+  const room = session.room;
+  session.room = null;
+  if (!room) {
+    removeRemoteAudioElements();
+    return;
+  }
+
+  void stopLocalAudioTracks(room).finally(() => {
+    try {
+      room.disconnect(true);
+    } catch (err) {
+      console.error('[useLiveKit] room.disconnect failed:', err);
+    }
+    removeRemoteAudioElements();
+  });
+}
+
+/** Ends the LiveKit session and resets emotion store to initial values. */
+export function disconnect(): void {
+  session.connectGeneration += 1;
+  teardownRoom();
+  resetStoreToInitial();
 }
 
 async function fetchLiveKitToken(): Promise<string> {
@@ -27,18 +87,14 @@ async function fetchLiveKitToken(): Promise<string> {
 export function useLiveKit({ serverUrl, sessionActive }: UseLiveKitOptions) {
   const roomRef = useRef<Room | null>(null);
   const connectNonce = useEmotionStore((s) => s.connectNonce);
-  const {
-    setConnected,
-    setSpeaking,
-    setConnectionState,
-    resetConnection,
-  } = useEmotionStore();
+  const { setConnected, setSpeaking, setConnectionState, resetConnection } = useEmotionStore();
 
   useEffect(() => {
     if (!sessionActive) {
-      roomRef.current?.disconnect();
-      roomRef.current = null;
+      session.connectGeneration += 1;
+      teardownRoom();
       resetConnection();
+      roomRef.current = null;
       return;
     }
 
@@ -47,14 +103,15 @@ export function useLiveKit({ serverUrl, sessionActive }: UseLiveKitOptions) {
       return;
     }
 
+    const generation = ++session.connectGeneration;
     let cancelled = false;
-    const audioElements: HTMLMediaElement[] = [];
+
+    const isStale = () =>
+      cancelled || generation !== session.connectGeneration || !sessionActive;
 
     const cleanupRoom = () => {
-      roomRef.current?.disconnect();
+      teardownRoom();
       roomRef.current = null;
-      audioElements.forEach((el) => el.remove());
-      audioElements.length = 0;
       setConnected(false);
       setSpeaking(false);
     };
@@ -67,33 +124,37 @@ export function useLiveKit({ serverUrl, sessionActive }: UseLiveKitOptions) {
         token = await fetchLiveKitToken();
       } catch (err) {
         console.error('[useLiveKit] Token fetch failed:', err);
-        if (!cancelled) setConnectionState('error');
+        if (!isStale()) setConnectionState('error');
         return;
       }
 
-      if (cancelled) return;
+      if (isStale()) return;
 
       setConnectionState('connecting');
 
       const room = new Room({ adaptiveStream: true, dynacast: true });
+      session.room = room;
       roomRef.current = room;
 
       room.on(RoomEvent.Connected, async () => {
-        if (cancelled) return;
+        if (isStale()) return;
         try {
           await room.localParticipant.setMicrophoneEnabled(true);
+          if (isStale()) return;
           setConnected(true);
           setConnectionState('connected');
         } catch (err) {
           console.error('[useLiveKit] Microphone denied:', err);
-          setConnectionState('error');
-          setConnected(false);
-          room.disconnect();
+          if (!isStale()) {
+            setConnectionState('error');
+            setConnected(false);
+          }
+          teardownRoom();
         }
       });
 
       room.on(RoomEvent.Disconnected, () => {
-        if (cancelled) return;
+        if (isStale()) return;
         setConnected(false);
         setSpeaking(false);
         if (useEmotionStore.getState().connectionState === 'connected') {
@@ -108,7 +169,7 @@ export function useLiveKit({ serverUrl, sessionActive }: UseLiveKitOptions) {
           audioEl.playsInline = true;
           audioEl.style.display = 'none';
           document.body.appendChild(audioEl);
-          audioElements.push(audioEl);
+          session.audioElements.push(audioEl);
         }
       });
 
@@ -116,8 +177,8 @@ export function useLiveKit({ serverUrl, sessionActive }: UseLiveKitOptions) {
         if (track.kind === Track.Kind.Audio) {
           track.detach().forEach((el) => {
             el.remove();
-            const idx = audioElements.indexOf(el);
-            if (idx >= 0) audioElements.splice(idx, 1);
+            const idx = session.audioElements.indexOf(el);
+            if (idx >= 0) session.audioElements.splice(idx, 1);
           });
         }
       });
@@ -131,7 +192,7 @@ export function useLiveKit({ serverUrl, sessionActive }: UseLiveKitOptions) {
         try {
           const payload = JSON.parse(new TextDecoder().decode(data));
           if (payload.type === 'telemetry') {
-            useEmotionStore.getState().setEnergy(payload.energy ?? 0.65);
+            useEmotionStore.getState().setEnergy(payload.energy ?? INITIAL_ENERGY);
             useEmotionStore.getState().setMoodTag(payload.moodTag ?? null);
           }
         } catch {
@@ -143,7 +204,7 @@ export function useLiveKit({ serverUrl, sessionActive }: UseLiveKitOptions) {
         await room.connect(serverUrl, token);
       } catch (err) {
         console.error('[useLiveKit] room.connect failed:', err);
-        if (!cancelled) {
+        if (!isStale()) {
           setConnectionState('error');
           setConnected(false);
         }
@@ -155,6 +216,7 @@ export function useLiveKit({ serverUrl, sessionActive }: UseLiveKitOptions) {
 
     return () => {
       cancelled = true;
+      session.connectGeneration += 1;
       cleanupRoom();
     };
   }, [
@@ -167,5 +229,5 @@ export function useLiveKit({ serverUrl, sessionActive }: UseLiveKitOptions) {
     resetConnection,
   ]);
 
-  return { room: roomRef.current };
+  return { room: roomRef.current, disconnect };
 }
