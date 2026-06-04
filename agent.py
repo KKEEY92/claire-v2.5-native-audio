@@ -25,6 +25,7 @@ import os
 import json
 import random
 import asyncio
+import time
 from typing import Annotated
 from collections.abc import AsyncIterable, AsyncGenerator
 from datetime import datetime
@@ -114,6 +115,7 @@ class ClaireAgent(Agent):
         self._ego = ego
         # ✅ FIX: eigene History – session.history existiert in LK Agents 2.x nicht
         self._history: list[dict] = []
+        self._session_start = time.time()
 
     async def _send_telemetry(self):
         """Sendet Energie- und Mood-Daten an das Frontend via LiveKit Data Channel."""
@@ -123,6 +125,9 @@ class ClaireAgent(Agent):
                     "type": "telemetry",
                     "energy": round(self._ego.energy, 3),
                     "moodTag": EmotionEngine.get_mode_label(self._ego.energy),
+                    "factsCount": len(_memory.load_facts()),
+                    "turnCount": len(self._history) // 2,
+                    "sessionSeconds": int(time.time() - self._session_start),
                 }
                 # Mit Timeout, damit es nie blockiert
                 await asyncio.wait_for(
@@ -141,6 +146,7 @@ class ClaireAgent(Agent):
     async def on_enter(self) -> None:
         """Beim Gesprächsstart: spontane, natürliche Begrüßung."""
         print("[Claire] on_enter started", flush=True)
+        self._session_start = time.time()
         try:
             # History-Listener registrieren sobald die Session bereit ist
             self.session.on("conversation_item_created", self._on_conversation_item)

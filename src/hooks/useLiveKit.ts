@@ -21,10 +21,21 @@ interface UseLiveKitOptions {
 }
 
 function resetStoreToInitial(): void {
-  const { setEnergy, setMoodTag, setConnected, setSpeaking, setConnectionState } =
-    useEmotionStore.getState();
+  const {
+    setEnergy,
+    setMoodTag,
+    setFacts,
+    setTurnCount,
+    setSessionSeconds,
+    setConnected,
+    setSpeaking,
+    setConnectionState,
+  } = useEmotionStore.getState();
   setEnergy(INITIAL_ENERGY);
   setMoodTag(null);
+  setFacts(0);
+  setTurnCount(0);
+  setSessionSeconds(0);
   setConnected(false);
   setSpeaking(false);
   setConnectionState('idle');
@@ -192,8 +203,18 @@ export function useLiveKit({ serverUrl, sessionActive }: UseLiveKitOptions) {
         try {
           const payload = JSON.parse(new TextDecoder().decode(data));
           if (payload.type === 'telemetry') {
-            useEmotionStore.getState().setEnergy(payload.energy ?? INITIAL_ENERGY);
-            useEmotionStore.getState().setMoodTag(payload.moodTag ?? null);
+            const store = useEmotionStore.getState();
+            store.setEnergy(payload.energy ?? INITIAL_ENERGY);
+            store.setMoodTag(payload.moodTag ?? null);
+            if (typeof payload.factsCount === 'number') {
+              store.setFacts(payload.factsCount);
+            }
+            if (typeof payload.turnCount === 'number') {
+              store.setTurnCount(payload.turnCount);
+            }
+            if (typeof payload.sessionSeconds === 'number') {
+              store.setSessionSeconds(payload.sessionSeconds);
+            }
           }
         } catch {
           /* ignore non-JSON */

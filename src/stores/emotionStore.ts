@@ -14,6 +14,8 @@ interface EmotionState {
   modeConfig: EnergyConfig;
   moodTag: string | null;
   factsCount: number;
+  turnCount: number;
+  sessionSeconds: number;
   isConnected: boolean;
   isSpeaking: boolean;
   connectionState: ConnectionState;
@@ -22,6 +24,8 @@ interface EmotionState {
   setEnergy: (energy: number) => void;
   setMoodTag: (tag: string | null) => void;
   setFacts: (count: number) => void;
+  setTurnCount: (count: number) => void;
+  setSessionSeconds: (seconds: number) => void;
   setConnected: (v: boolean) => void;
   setSpeaking: (v: boolean) => void;
   setConnectionState: (state: ConnectionState) => void;
@@ -36,6 +40,8 @@ export const useEmotionStore = create<EmotionState>((set) => ({
   modeConfig: getEnergyConfig(0.65),
   moodTag: null,
   factsCount: 0,
+  turnCount: 0,
+  sessionSeconds: 0,
   isConnected: false,
   isSpeaking: false,
   connectionState: 'idle',
@@ -45,6 +51,8 @@ export const useEmotionStore = create<EmotionState>((set) => ({
     set({ energy, mode: getEnergyMode(energy), modeConfig: getEnergyConfig(energy) }),
   setMoodTag: (tag) => set({ moodTag: tag }),
   setFacts: (count) => set({ factsCount: count }),
+  setTurnCount: (count) => set({ turnCount: count }),
+  setSessionSeconds: (seconds) => set({ sessionSeconds: seconds }),
   setConnected: (v) => set({ isConnected: v }),
   setSpeaking: (v) => set({ isSpeaking: v }),
   setConnectionState: (state) => set({ connectionState: state }),
@@ -70,5 +78,8 @@ export const useEmotionStore = create<EmotionState>((set) => ({
       connectionState: 'idle',
       isConnected: false,
       isSpeaking: false,
+      factsCount: 0,
+      turnCount: 0,
+      sessionSeconds: 0,
     }),
 }));
