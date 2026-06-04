@@ -108,18 +108,29 @@ graph TB
 ## 📁 Project Structure
 
 ```
-claire-v2/
-├── agent.py              # LiveKit VoicePipelineAgent – main entrypoint
-├── persona.py            # EmotionEngine, EgoState, CircadianRhythm
-├── memory.py             # DriveMemory – persistent RAG via Google Drive
-├── brain_test.py         # Isolated core logic – text-only validation
-├── requirements.txt      # Pinned production dependencies
-├── .env.example          # Environment variable template (safe to commit)
-├── .gitignore            # Security-focused ignore rules
-├── LICENSE               # Proprietary copyright – Kevin Kuck 2026
+00_CLAIRE_V2_APP/          # Project root (this repository)
+├── src/                   # Active frontend (Vite + React + TypeScript)
+│   ├── App.tsx
+│   ├── components/        # Call, AuraTone, Analytics, Dashboard
+│   ├── hooks/             # useLiveKit.ts
+│   └── stores/            # emotionStore (Zustand)
+├── index.html
+├── package.json
+├── vite.config.ts
+├── agent.py               # LiveKit voice agent – main backend entrypoint
+├── persona.py             # EmotionEngine, EgoState, CircadianRhythm
+├── memory.py              # DriveMemory – persistent RAG via Google Drive
+├── token_server.py        # Local LiveKit JWT token server (dev)
+├── brain_test.py          # Isolated core logic – text-only validation
+├── requirements.txt       # Python dependencies
+├── .env.example           # Environment variable template (safe to commit)
+├── .gitignore
+├── LICENSE
+├── _archive/              # Retired artifacts (not used in production)
+│   └── claire-v2-frontend/  # Legacy Vite counter template (archived)
 └── .agents/
     └── rules/
-        └── workspace.md  # Development pipeline (4-phase workflow)
+        └── workspace.md   # Development pipeline (4-phase workflow)
 ```
 
 ---
