@@ -1,0 +1,6 @@
+{
+  "scanner": {
+    "enabled": false,
+    "exclude": ["node_modules", ".venv", "wireless-log-mhg06p"]
+  }
+}

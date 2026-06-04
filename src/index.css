@@ -1,0 +1,18 @@
+@import "tailwindcss";
+
+:root {
+  --energy-color: #a855f7;
+}
+
+@layer utilities {
+  .glass {
+    @apply bg-white/5 backdrop-blur-md border border-white/10;
+  }
+}
+
+body {
+  margin: 0;
+  background-color: #08080f;
+  color: white;
+  font-family: system-ui, -apple-system, sans-serif;
+}

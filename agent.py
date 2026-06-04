@@ -17,10 +17,16 @@ RAM-Fix (v2.1):
   • silero.VAD    → entfernt           (war der 47-GB-RAM-Killer via PyTorch)
   • gemini-2.5-flash-preview-05-20 → gemini-2.5-flash in _post_call
 """
+# ── MONKEY PATCH FOR GOOGLE-GENAI ENUM SERIALIZATION ─────────────────────────
+from google.genai._common import CaseInSensitiveEnum
+CaseInSensitiveEnum.__str__ = lambda self: str(self.value)
+
 import os
+import json
 import random
 import asyncio
 from typing import Annotated
+from collections.abc import AsyncIterable, AsyncGenerator
 from datetime import datetime
 
 # ── AUTO-LOAD .env ────────────────────────────────────────────────────────────
@@ -34,7 +40,10 @@ from livekit.agents import (
     WorkerOptions,
     cli,
     function_tool,
+    tts,
+    tokenize,
 )
+from livekit import rtc
 from livekit.plugins import google  # ✅ Nur Google – kein Deepgram, ElevenLabs, Silero
 
 from persona import EmotionEngine, EgoState, get_daily_context, get_circadian_energy_base
@@ -106,17 +115,51 @@ class ClaireAgent(Agent):
         # ✅ FIX: eigene History – session.history existiert in LK Agents 2.x nicht
         self._history: list[dict] = []
 
+    async def _send_telemetry(self):
+        """Sendet Energie- und Mood-Daten an das Frontend via LiveKit Data Channel."""
+        try:
+            if self.session and self.session._room_io and self.session._room_io._room:
+                payload = {
+                    "type": "telemetry",
+                    "energy": round(self._ego.energy, 3),
+                    "moodTag": EmotionEngine.get_mode_label(self._ego.energy),
+                }
+                # Mit Timeout, damit es nie blockiert
+                await asyncio.wait_for(
+                    self.session._room_io._room.local_participant.publish_data(
+                        json.dumps(payload).encode("utf-8"),
+                        reliable=True,
+                    ),
+                    timeout=2.0
+                )
+        except asyncio.TimeoutError:
+            print("[Telemetry] Timeout beim Senden", flush=True)
+        except Exception as e:
+            print(f"[Telemetry] Fehler: {e}", flush=True)
+
+
     async def on_enter(self) -> None:
         """Beim Gesprächsstart: spontane, natürliche Begrüßung."""
-        # History-Listener registrieren sobald die Session bereit ist
-        self.session.on("conversation_item_created", self._on_conversation_item)
+        print("[Claire] on_enter started", flush=True)
+        try:
+            # History-Listener registrieren sobald die Session bereit ist
+            self.session.on("conversation_item_created", self._on_conversation_item)
 
-        await self.session.generate_reply(
-            instructions=(
-                "Begrüß Kev herzlich – ein kurzer spontaner Satz, "
-                "kein 'Guten Tag', kein förmliches Intro."
+            # Telemetrie asynchron im Hintergrund starten, damit der Greeting-Call nicht blockiert
+            asyncio.create_task(self._send_telemetry())
+            print("[Claire] Telemetry task spawned, generating reply...", flush=True)
+            await self.session.generate_reply(
+                instructions=(
+                    "Begrüß Kev herzlich – ein kurzer spontaner Satz, "
+                    "kein 'Guten Tag', kein förmliches Intro."
+                )
             )
-        )
+            print("[Claire] on_enter reply generation scheduled", flush=True)
+        except Exception as e:
+            print(f"[Claire] ERROR in on_enter: {e}", flush=True)
+            import traceback
+            traceback.print_exc()
+
 
     def _on_conversation_item(self, event) -> None:
         """
@@ -142,8 +185,55 @@ class ClaireAgent(Agent):
                     self._ego.energy = EmotionEngine.calculate_shift(
                         content, self._ego.energy
                     )
+                    # Telemetry an Frontend pushen
+                    asyncio.create_task(self._send_telemetry())
         except Exception as e:
             print(f"[History] Event-Parsing fehlgeschlagen: {e}")
+
+    async def tts_node(
+        self, text: AsyncIterable[str], model_settings: ModelSettings
+    ) -> AsyncGenerator[rtc.AudioFrame, None]:
+        print("[TTS Node] Started", flush=True)
+        # Puffer den Text, um leere Streams und Pipeline-Hangs zu verhindern
+        buffered_text = []
+        async for chunk in text:
+            print(f"[TTS Node] Chunk: {chunk}", flush=True)
+            buffered_text.append(chunk)
+
+        full_text = "".join(buffered_text).strip()
+        print(f"[TTS Node] Full text: '{full_text}'", flush=True)
+        if not full_text:
+            print("[TTS Node] Empty text, skipping", flush=True)
+            return
+
+        activity = self._get_activity_or_raise()
+        assert activity.tts is not None, "tts_node called but no TTS node is available"
+
+        wrapped_tts = activity.tts
+        if not activity.tts.capabilities.streaming:
+            print("[TTS Node] Adapting non-streaming TTS", flush=True)
+            wrapped_tts = tts.StreamAdapter(
+                tts=wrapped_tts, sentence_tokenizer=tokenize.basic.SentenceTokenizer()
+            )
+
+        conn_options = activity.session.conn_options.tts_conn_options
+        print("[TTS Node] Requesting stream from TTS provider...", flush=True)
+        try:
+            async with wrapped_tts.stream(conn_options=conn_options) as stream:
+                print("[TTS Node] Pushing text to stream...", flush=True)
+                stream.push_text(full_text)
+                stream.end_input()
+                frame_count = 0
+                async for ev in stream:
+                    frame_count += 1
+                    if frame_count % 50 == 0:
+                        print(f"[TTS Node] Received {frame_count} frames...", flush=True)
+                    yield ev.frame
+                print(f"[TTS Node] Finished. Total frames: {frame_count}", flush=True)
+        except Exception as e:
+            print(f"[TTS Node] ERROR in tts_node stream: {e}", flush=True)
+            import traceback
+            traceback.print_exc()
 
     # ── TOOLS ──────────────────────────────────────────────────────────────────
 
@@ -247,22 +337,28 @@ async def entrypoint(ctx: JobContext):
     # Vertex AI: GOOGLE_GENAI_USE_VERTEXAI=1 + GOOGLE_CLOUD_PROJECT in .env setzen
     # Gemini API: nur GOOGLE_API_KEY in .env (kein Vertex-Flag nötig)
     session = AgentSession(
-        stt=google.STT(language="de-DE"),           # ✅ Google Cloud Speech-to-Text
+        stt=google.STT(languages="de-DE"),          # ✅ Google Cloud Speech-to-Text
         llm=google.LLM(model="gemini-2.5-flash"),   # ✅ Vertex AI / Gemini
         tts=google.TTS(                             # ✅ Google Cloud Text-to-Speech
             language="de-DE",
-            # Primär: Neural2-F (bewährt, definitiv verfügbar)
-            # Alternative: "de-DE-Journey-F" falls du die neueste Stimme willst
-            voice_name="de-DE-Neural2-F",
+            # Primär: Chirp 3 HD (erforderlich für Streaming-Synthese)
+            voice_name="de-DE-Chirp3-HD-Aoede",
         ),
         # ✅ Kein silero.VAD mehr – LiveKit übernimmt Turn-Detection automatisch
     )
+
+    @session.on("error")
+    def on_session_error(err):
+        print(f"[Claire Session Error] {err}", flush=True)
 
     agent = ClaireAgent(instructions=prompt, ego=ego)
 
     # ③ Session starten ────────────────────────────────────────────────────────
     await session.start(room=ctx.room, agent=agent)
-    await ctx.wait_for_disconnect()
+    
+    # Warte bis der Raum getrennt wird
+    while ctx.room.isconnected():
+        await asyncio.sleep(1)
 
     # ④ Post-Call: Memory aktualisieren ───────────────────────────────────────
     await _post_call(session, agent)
