@@ -1,6 +1,6 @@
-import { FFTAnalyzer } from './FFTAnalyzer';
+import { useEffect, useRef } from 'react';
 import { NeonRing } from './NeonRing';
-import { disconnect } from '../../hooks/useLiveKit';
+import { disconnect, getAgentAnalyser } from '../../hooks/useLiveKit';
 import { useEmotionStore, type ConnectionState } from '../../stores/emotionStore';
 
 const STATUS_LABELS: Record<ConnectionState, string> = {
@@ -11,6 +11,10 @@ const STATUS_LABELS: Record<ConnectionState, string> = {
   error: 'Fehler',
 };
 
+const BAR_COUNT = 32;
+const CANVAS_WIDTH = 280;
+const CANVAS_HEIGHT = 60;
+
 export function PhoneCallScreen({
   onEndCall,
   onRetry,
@@ -18,12 +22,75 @@ export function PhoneCallScreen({
   onEndCall: () => void;
   onRetry: () => void;
 }) {
-  const { connectionState, moodTag, isConnected } = useEmotionStore();
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const animRef = useRef(0);
+  const { connectionState, moodTag, isConnected, modeConfig } = useEmotionStore();
 
   const statusLabel =
     connectionState === 'connected'
       ? moodTag || STATUS_LABELS.connected
       : STATUS_LABELS[connectionState];
+
+  const showVisualizer = isConnected && connectionState === 'connected';
+
+  useEffect(() => {
+    if (!showVisualizer) return;
+
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    if (!ctx.roundRect) {
+      ctx.roundRect = (x: number, y: number, w: number, h: number, r: number) => {
+        ctx.beginPath();
+        ctx.moveTo(x + r, y);
+        ctx.lineTo(x + w - r, y);
+        ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+        ctx.lineTo(x + w, y + h - r);
+        ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+        ctx.lineTo(x + r, y + h);
+        ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+        ctx.lineTo(x, y + r);
+        ctx.quadraticCurveTo(x, y, x + r, y);
+        ctx.closePath();
+      };
+    }
+
+    const barW = CANVAS_WIDTH / BAR_COUNT - 2;
+    const dataArray = new Uint8Array(128);
+
+    const draw = () => {
+      const analyser = getAgentAnalyser();
+      ctx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+
+      if (analyser) {
+        analyser.getByteFrequencyData(dataArray);
+      } else {
+        dataArray.fill(0);
+      }
+
+      for (let i = 0; i < BAR_COUNT; i++) {
+        const bin = Math.floor((i / BAR_COUNT) * dataArray.length);
+        const amplitude = dataArray[bin] / 255;
+        const h = Math.max(2, amplitude * CANVAS_HEIGHT * 0.92);
+        const x = i * (barW + 2);
+        const y = (CANVAS_HEIGHT - h) / 2;
+
+        ctx.fillStyle = modeConfig.color;
+        ctx.globalAlpha = analyser ? 0.35 + amplitude * 0.65 : 0.2;
+        ctx.beginPath();
+        ctx.roundRect(x, y, barW, h, 2);
+        ctx.fill();
+      }
+
+      ctx.globalAlpha = 1;
+      animRef.current = requestAnimationFrame(draw);
+    };
+
+    animRef.current = requestAnimationFrame(draw);
+    return () => cancelAnimationFrame(animRef.current);
+  }, [showVisualizer, modeConfig.color]);
 
   const handleHangUp = () => {
     disconnect();
@@ -54,7 +121,15 @@ export function PhoneCallScreen({
       <NeonRing />
 
       <div className="h-20 flex items-center justify-center">
-        {isConnected && connectionState === 'connected' && <FFTAnalyzer />}
+        {showVisualizer && (
+          <canvas
+            ref={canvasRef}
+            width={CANVAS_WIDTH}
+            height={CANVAS_HEIGHT}
+            className="opacity-80"
+            aria-hidden
+          />
+        )}
       </div>
 
       <button

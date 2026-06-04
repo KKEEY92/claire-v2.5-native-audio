@@ -14,6 +14,69 @@ const session = {
   connectGeneration: 0,
 };
 
+let audioContext: AudioContext | null = null;
+let agentAnalyser: AnalyserNode | null = null;
+let agentMediaSource: MediaElementAudioSourceNode | null = null;
+
+function getAudioContext(): AudioContext {
+  if (!audioContext) {
+    audioContext = new AudioContext();
+  }
+  if (audioContext.state === 'suspended') {
+    void audioContext.resume();
+  }
+  return audioContext;
+}
+
+function setupAgentAudioAnalyser(audioElement: HTMLMediaElement): void {
+  const ctx = getAudioContext();
+  try {
+    if (agentMediaSource) {
+      agentMediaSource.disconnect();
+      agentMediaSource = null;
+    }
+    if (agentAnalyser) {
+      agentAnalyser.disconnect();
+      agentAnalyser = null;
+    }
+
+    const source = ctx.createMediaElementSource(audioElement);
+    const analyser = ctx.createAnalyser();
+    analyser.fftSize = 256;
+    source.connect(analyser);
+    analyser.connect(ctx.destination);
+
+    agentMediaSource = source;
+    agentAnalyser = analyser;
+  } catch (err) {
+    console.error('[useLiveKit] Audio analyser setup failed:', err);
+  }
+}
+
+function cleanupAudioAnalysis(): void {
+  agentAnalyser = null;
+  if (agentMediaSource) {
+    try {
+      agentMediaSource.disconnect();
+    } catch {
+      /* already disconnected */
+    }
+    agentMediaSource = null;
+  }
+  if (audioContext) {
+    const ctx = audioContext;
+    audioContext = null;
+    void ctx.close().catch(() => {
+      /* context may already be closed */
+    });
+  }
+}
+
+/** Returns the analyser wired to Claire's remote audio output, if connected. */
+export function getAgentAnalyser(): AnalyserNode | null {
+  return agentAnalyser;
+}
+
 interface UseLiveKitOptions {
   serverUrl: string;
   /** Session should stay active (user started a call). */
@@ -44,6 +107,7 @@ function resetStoreToInitial(): void {
 function removeRemoteAudioElements(): void {
   session.audioElements.forEach((el) => el.remove());
   session.audioElements.length = 0;
+  cleanupAudioAnalysis();
 }
 
 async function stopLocalAudioTracks(room: Room): Promise<void> {
@@ -181,6 +245,7 @@ export function useLiveKit({ serverUrl, sessionActive }: UseLiveKitOptions) {
           audioEl.style.display = 'none';
           document.body.appendChild(audioEl);
           session.audioElements.push(audioEl);
+          setupAgentAudioAnalyser(audioEl);
         }
       });
 
@@ -191,6 +256,15 @@ export function useLiveKit({ serverUrl, sessionActive }: UseLiveKitOptions) {
             const idx = session.audioElements.indexOf(el);
             if (idx >= 0) session.audioElements.splice(idx, 1);
           });
+          agentAnalyser = null;
+          if (agentMediaSource) {
+            try {
+              agentMediaSource.disconnect();
+            } catch {
+              /* already disconnected */
+            }
+            agentMediaSource = null;
+          }
         }
       });
 
