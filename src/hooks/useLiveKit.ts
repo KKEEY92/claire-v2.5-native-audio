@@ -1,72 +1,171 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import { Room, RoomEvent, Track } from 'livekit-client';
 import { useEmotionStore } from '../stores/emotionStore';
 
-interface UseLiveKitOptions { serverUrl: string; token: string; enabled: boolean; }
+const TOKEN_ENDPOINT =
+  import.meta.env.VITE_LIVEKIT_TOKEN_ENDPOINT ?? '/token';
 
-export function useLiveKit({ serverUrl, token, enabled }: UseLiveKitOptions) {
+interface UseLiveKitOptions {
+  serverUrl: string;
+  /** Session should stay active (user started a call). */
+  sessionActive: boolean;
+}
+
+async function fetchLiveKitToken(): Promise<string> {
+  const url = `${TOKEN_ENDPOINT}?room=claire&identity=user-${Date.now()}`;
+  const res = await fetch(url);
+  if (!res.ok) {
+    throw new Error(`Token-Server antwortete mit ${res.status}`);
+  }
+  const data = (await res.json()) as { token?: string };
+  if (!data.token) {
+    throw new Error('Kein Token in der Antwort');
+  }
+  return data.token;
+}
+
+export function useLiveKit({ serverUrl, sessionActive }: UseLiveKitOptions) {
   const roomRef = useRef<Room | null>(null);
-  const [isReady, setIsReady] = useState(false);
-  const { setConnected, setSpeaking } = useEmotionStore();
+  const connectNonce = useEmotionStore((s) => s.connectNonce);
+  const {
+    setConnected,
+    setSpeaking,
+    setConnectionState,
+    resetConnection,
+  } = useEmotionStore();
 
   useEffect(() => {
-    if (!enabled || !token || !serverUrl) return;
+    if (!sessionActive) {
+      roomRef.current?.disconnect();
+      roomRef.current = null;
+      resetConnection();
+      return;
+    }
 
-    const room = new Room({ adaptiveStream: true, dynacast: true });
-    roomRef.current = room;
+    if (!serverUrl) {
+      setConnectionState('error');
+      return;
+    }
 
-    room.on(RoomEvent.Connected, () => {
-      setConnected(true);
-      setIsReady(true);
-      // Mikrofon aktivieren
-      room.localParticipant.setMicrophoneEnabled(true)
-        .catch(err => console.error('Failed to enable microphone:', err));
-    });
-    room.on(RoomEvent.Disconnected, () => { setConnected(false); setIsReady(false); setSpeaking(false); });
+    let cancelled = false;
+    const audioElements: HTMLMediaElement[] = [];
 
-    // FIX: Audio an den DOM hängen, sonst bleibt Claire stumm!
-    room.on(RoomEvent.TrackSubscribed, (track) => {
-      console.log('[useLiveKit] TrackSubscribed:', track.kind, track.sid);
-      if (track.kind === Track.Kind.Audio) {
-        const audioEl = track.attach();
-        audioEl.autoplay = true;
-        audioEl.playsInline = true;
-        audioEl.style.display = 'none';
-        document.body.appendChild(audioEl);
-        console.log('[useLiveKit] Attached audio element to DOM:', audioEl);
-      }
-    });
+    const cleanupRoom = () => {
+      roomRef.current?.disconnect();
+      roomRef.current = null;
+      audioElements.forEach((el) => el.remove());
+      audioElements.length = 0;
+      setConnected(false);
+      setSpeaking(false);
+    };
 
-    room.on(RoomEvent.TrackUnsubscribed, (track) => {
-      console.log('[useLiveKit] TrackUnsubscribed:', track.kind, track.sid);
-      if (track.kind === Track.Kind.Audio) {
-        track.detach().forEach(el => {
-          el.remove();
-          console.log('[useLiveKit] Removed audio element from DOM:', el);
-        });
-      }
-    });
+    const run = async () => {
+      setConnectionState('token_fetch');
 
-    // Dynamisch tracken ob Claire gerade spricht
-    room.on(RoomEvent.ActiveSpeakersChanged, (speakers) => {
-      const isAgentSpeaking = speakers.some(s => !s.isLocal);
-      setSpeaking(isAgentSpeaking);
-    });
-
-    room.on(RoomEvent.DataReceived, (data: Uint8Array) => {
+      let token: string;
       try {
-        const payload = JSON.parse(new TextDecoder().decode(data));
-        if (payload.type === 'telemetry') {
-          useEmotionStore.getState().setEnergy(payload.energy ?? 0.65);
-          useEmotionStore.getState().setMoodTag(payload.moodTag ?? null);
+        token = await fetchLiveKitToken();
+      } catch (err) {
+        console.error('[useLiveKit] Token fetch failed:', err);
+        if (!cancelled) setConnectionState('error');
+        return;
+      }
+
+      if (cancelled) return;
+
+      setConnectionState('connecting');
+
+      const room = new Room({ adaptiveStream: true, dynacast: true });
+      roomRef.current = room;
+
+      room.on(RoomEvent.Connected, async () => {
+        if (cancelled) return;
+        try {
+          await room.localParticipant.setMicrophoneEnabled(true);
+          setConnected(true);
+          setConnectionState('connected');
+        } catch (err) {
+          console.error('[useLiveKit] Microphone denied:', err);
+          setConnectionState('error');
+          setConnected(false);
+          room.disconnect();
         }
-      } catch (_) {}
-    });
+      });
 
-    room.connect(serverUrl, token).catch(console.error);
+      room.on(RoomEvent.Disconnected, () => {
+        if (cancelled) return;
+        setConnected(false);
+        setSpeaking(false);
+        if (useEmotionStore.getState().connectionState === 'connected') {
+          setConnectionState('idle');
+        }
+      });
 
-    return () => { room.disconnect(); roomRef.current = null; setSpeaking(false); };
-  }, [enabled, token, serverUrl]);
+      room.on(RoomEvent.TrackSubscribed, (track) => {
+        if (track.kind === Track.Kind.Audio) {
+          const audioEl = track.attach();
+          audioEl.autoplay = true;
+          audioEl.playsInline = true;
+          audioEl.style.display = 'none';
+          document.body.appendChild(audioEl);
+          audioElements.push(audioEl);
+        }
+      });
 
-  return { room: roomRef.current, isReady };
+      room.on(RoomEvent.TrackUnsubscribed, (track) => {
+        if (track.kind === Track.Kind.Audio) {
+          track.detach().forEach((el) => {
+            el.remove();
+            const idx = audioElements.indexOf(el);
+            if (idx >= 0) audioElements.splice(idx, 1);
+          });
+        }
+      });
+
+      room.on(RoomEvent.ActiveSpeakersChanged, (speakers) => {
+        const isAgentSpeaking = speakers.some((s) => !s.isLocal);
+        setSpeaking(isAgentSpeaking);
+      });
+
+      room.on(RoomEvent.DataReceived, (data: Uint8Array) => {
+        try {
+          const payload = JSON.parse(new TextDecoder().decode(data));
+          if (payload.type === 'telemetry') {
+            useEmotionStore.getState().setEnergy(payload.energy ?? 0.65);
+            useEmotionStore.getState().setMoodTag(payload.moodTag ?? null);
+          }
+        } catch {
+          /* ignore non-JSON */
+        }
+      });
+
+      try {
+        await room.connect(serverUrl, token);
+      } catch (err) {
+        console.error('[useLiveKit] room.connect failed:', err);
+        if (!cancelled) {
+          setConnectionState('error');
+          setConnected(false);
+        }
+        cleanupRoom();
+      }
+    };
+
+    void run();
+
+    return () => {
+      cancelled = true;
+      cleanupRoom();
+    };
+  }, [
+    sessionActive,
+    serverUrl,
+    connectNonce,
+    setConnected,
+    setSpeaking,
+    setConnectionState,
+    resetConnection,
+  ]);
+
+  return { room: roomRef.current };
 }
