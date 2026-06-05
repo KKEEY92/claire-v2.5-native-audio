@@ -42,6 +42,23 @@ circadian rhythm simulation, and professional-grade audio intelligence.*
 | 🎵 **AuraTone DSP** | Audio processing intelligence (LUFS, Camelot, Traktor Pro 4) |
 | ☁️ **100% Cloud Pipeline** | Zero local GPU dependency — full Google Cloud stack |
 | 🔒 **Post-Call Analysis** | Automatic transcript summarization with Gemini 2.5 Flash |
+| 📞 **LiveKit Call UI** | Connection state machine, German status labels, retry on error |
+| 📊 **Live Analytics** | Real-time facts, turns, and session duration via telemetry |
+| 🎚️ **Voice Visualizer** | Web Audio API analyser driven by Claire's actual audio output |
+
+---
+
+## 🆕 Recent Updates (June 2026)
+
+| Area | Change |
+|---|---|
+| **Frontend** | LiveKit connection state machine (`idle` → `token_fetch` → `connecting` → `connected` / `error`) with German UI and **Erneut verbinden** retry |
+| **Hang-up** | `disconnect()` tears down the LiveKit room, stops mic tracks, and resets Zustand store (no zombie sessions) |
+| **Telemetry** | Agent sends `factsCount`, `turnCount`, `sessionSeconds`; Analytics view shows live data (`mm:ss` session time) |
+| **Visualizer (B3)** | Replaced synthetic FFT with real `AnalyserNode` on remote audio via lazy singleton `AudioContext` |
+| **Repo** | Legacy `claire-v2-frontend/` archived under `_archive/`; active app is `src/` at project root |
+| **Dependencies** | `livekit-agents[google]` only — Deepgram/ElevenLabs/Silero extras removed (RAM optimization) |
+| **Docs** | `ZUSTANDSBERICHT_2026-06-04.md`, `CLAIRE_V2_Aenderungsbericht.pdf` (change report) |
 
 ---
 
@@ -122,10 +139,12 @@ graph TB
 ├── memory.py              # DriveMemory – persistent RAG via Google Drive
 ├── token_server.py        # Local LiveKit JWT token server (dev)
 ├── brain_test.py          # Isolated core logic – text-only validation
-├── requirements.txt       # Python dependencies
+├── requirements.txt       # Python dependencies (Google-only LiveKit extras)
 ├── .env.example           # Environment variable template (safe to commit)
 ├── .gitignore
 ├── LICENSE
+├── ZUSTANDSBERICHT_2026-06-04.md   # Project status & improvement plan
+├── CLAIRE_V2_Aenderungsbericht.pdf # PDF change report (session work)
 ├── _archive/              # Retired artifacts (not used in production)
 │   └── claire-v2-frontend/  # Legacy Vite counter template (archived)
 └── .agents/
@@ -202,7 +221,22 @@ gcloud auth application-default login
 gcloud config set project $GOOGLE_CLOUD_PROJECT
 ```
 
-### 4. Run Locally
+### 4. Frontend (Vite + React)
+
+```bash
+npm install
+cp .env.example .env   # set VITE_LIVEKIT_URL, VITE_LIVEKIT_TOKEN_ENDPOINT
+npm run dev            # http://localhost:5173
+```
+
+Token server (separate terminal — see comments in `requirements.txt`):
+
+```bash
+pip install flask livekit-api
+python token_server.py
+```
+
+### 5. Run Locally
 
 ```bash
 # Validate core logic (text-only, no audio)
@@ -211,6 +245,14 @@ python brain_test.py
 # Run full voice agent (requires LiveKit room)
 python agent.py start
 ```
+
+### Frontend views
+
+| View | Route / Tab | Status |
+|---|---|---|
+| **Call** | `call` | LiveKit connect, German status, retry, Web Audio visualizer |
+| **AuraTone** | `auratone` | Visual shell (Camelot wheel) |
+| **Analytics** | `analytics` | Live facts count, session time, conversation turns |
 
 ---
 
@@ -259,8 +301,8 @@ This project follows a strict 4-phase development workflow:
 | Phase | Focus | Status |
 |---|---|---|
 | **Phase 1** | Isolated core (`brain_test.py`) – EmotionEngine, Tool Calling, Drive RAG | ✅ Done |
-| **Phase 2** | Backend & LiveKit wrapper (`agent.py`) – VAD, TTS, STT | ✅ Done |
-| **Phase 3** | Frontend (Stitch + Vertex Design) – Analytics Dashboard | 🔄 In Progress |
+| **Phase 2** | Backend & LiveKit wrapper (`agent.py`) – Google STT/TTS, telemetry | ✅ Done |
+| **Phase 3** | Frontend – Call UI, connection FSM, analytics, audio visualizer | 🟡 Core done, AuraTone polish open |
 | **Phase 4** | Documentation & Cloud Run Deployment | 🔄 In Progress |
 
 ---
