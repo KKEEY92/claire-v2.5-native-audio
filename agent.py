@@ -246,19 +246,18 @@ class ClaireAgent(Agent):
     @function_tool
     async def recall_memory(
         self,
-        query: Annotated[str, "Stichwort für die Suche"],
+        query: Annotated[str, "Stichwort oder Frage zur Suche in der Memory"],
     ) -> str:
         """
-        Ruft gespeicherte Fakten über Kev ab.
-        Nutze das wenn du dir bei etwas nicht sicher bist.
+        Semantische Suche in Kevs gespeicherten Fakten.
+        Nutze das wenn du dir bei etwas nicht sicher bist oder etwas nachschlagen willst.
+        Gibt die relevantesten Einträge zurück — nach semantischer Ähnlichkeit, nicht Keyword.
         """
-        facts = _memory.load_facts()
-        q_words = set(query.lower().split())
-        hits = [f for f in facts if q_words & set(f.content.lower().split())]
-        hits = sorted(hits, key=lambda x: x.timestamp, reverse=True)
+        hits = _memory.semantic_search(query, top_k=6)
         if not hits:
             return "Nichts Passendes in meiner Memory gefunden."
-        return "\n".join(f"[{h.category}] {h.content}" for h in hits[:6])
+        lines = [f"[{h.category}] {h.content}" for h in hits]
+        return "\n".join(lines)
 
     @function_tool
     async def aura_master_track(

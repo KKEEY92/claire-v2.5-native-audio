@@ -1,17 +1,20 @@
 """
 memory.py – Persistente Google Drive Memory für Claire.
 
-Implementiert die Memory 2.0 Architektur aus dem Claire V2 Dossier:
+Architektur Memory 2.0:
   • 7 Kategorien
-  • Duplikatschutz: >60% Wort-Überschneidung → Update (Patch) statt Insert (Post)
-  • Retrieval: neueste Einträge zuerst, max. N pro Kategorie
-  • Fallback: vollständig In-Memory wenn Drive nicht konfiguriert
+  • Duplikatschutz: >60% Wort-Überschneidung → Update statt Duplikat
+  • Embedding-Retrieval (P0-Fix): semantic_search() via Vertex AI
+    text-multilingual-embedding-002 + Cosine Similarity
+  • Fallback: Keyword-Matching für ältere Facts ohne Embedding
+  • Drive-Fallback: vollständig In-Memory wenn Drive nicht konfiguriert
 
-Auth: Ausschließlich Application Default Credentials (ADC).
+Auth: Application Default Credentials (ADC).
   Lokal:     gcloud auth application-default login
-  Cloud Run: Service-Account via Workload Identity – kein Key-File nötig.
+  Cloud Run: Service-Account via Workload Identity.
 """
 import json
+import math
 import os
 import datetime
 from dataclasses import dataclass, field
@@ -24,6 +27,17 @@ try:
     _DRIVE_OK = True
 except ImportError:
     _DRIVE_OK = False
+
+# Vertex AI Embedding — optional, graceful fallback wenn nicht verfügbar
+try:
+    import vertexai
+    from vertexai.language_models import TextEmbeddingModel
+    _EMBEDDING_OK = True
+except ImportError:
+    _EMBEDDING_OK = False
+
+_EMBEDDING_MODEL_NAME = "text-multilingual-embedding-002"
+_embedding_model: Optional["TextEmbeddingModel"] = None  # lazy init
 
 
 # ── SCHEMA ────────────────────────────────────────────────────────────────────
@@ -46,6 +60,7 @@ class MemoryEntry:
     timestamp: str = field(default_factory=lambda: datetime.datetime.now().isoformat())
     importance: float = 0.5
     tags: list[str] = field(default_factory=list)
+    embedding: list[float] = field(default_factory=list)  # Vertex AI embedding vector
 
     def to_dict(self) -> dict:
         return {
@@ -54,6 +69,7 @@ class MemoryEntry:
             "timestamp":  self.timestamp,
             "importance": self.importance,
             "tags":       self.tags,
+            "embedding":  self.embedding,  # inline gespeichert in facts.json
         }
 
     @classmethod
@@ -64,7 +80,68 @@ class MemoryEntry:
             timestamp=d.get("timestamp", datetime.datetime.now().isoformat()),
             importance=float(d.get("importance", 0.5)),
             tags=d.get("tags", []),
+            embedding=d.get("embedding", []),  # backward-kompatibel: fehlt → []
         )
+
+
+# ── EMBEDDING HELPERS ─────────────────────────────────────────────────────────────
+
+def _get_embedding_model() -> Optional["TextEmbeddingModel"]:
+    """Lazy-init des Embedding-Modells. Gibt None zurück wenn nicht verfügbar."""
+    global _embedding_model
+    if _embedding_model is not None:
+        return _embedding_model
+    if not _EMBEDDING_OK:
+        return None
+    try:
+        project = os.getenv("GOOGLE_CLOUD_PROJECT")
+        location = os.getenv("GOOGLE_CLOUD_LOCATION", "europe-west3")
+        if project:
+            vertexai.init(project=project, location=location)
+        _embedding_model = TextEmbeddingModel.from_pretrained(_EMBEDDING_MODEL_NAME)
+        print(f"[Memory] Embedding-Modell geladen: {_EMBEDDING_MODEL_NAME}")
+        return _embedding_model
+    except Exception as e:
+        print(f"[Memory] Embedding-Modell nicht verfügbar: {e}")
+        return None
+
+
+def _compute_embedding(text: str) -> list[float]:
+    """
+    Berechnet einen Embedding-Vektor für text via Vertex AI.
+    Gibt [] zurück wenn Vertex AI nicht verfügbar (Keyword-Fallback greift dann).
+    """
+    model = _get_embedding_model()
+    if model is None:
+        return []
+    try:
+        result = model.get_embeddings([text])
+        return result[0].values
+    except Exception as e:
+        print(f"[Memory] Embedding-Fehler: {e}")
+        return []
+
+
+def _cosine_similarity(a: list[float], b: list[float]) -> float:
+    """Cosine Similarity in pure Python — kein numpy nötig."""
+    if not a or not b or len(a) != len(b):
+        return 0.0
+    dot    = sum(x * y for x, y in zip(a, b))
+    norm_a = math.sqrt(sum(x * x for x in a))
+    norm_b = math.sqrt(sum(x * x for x in b))
+    if norm_a == 0 or norm_b == 0:
+        return 0.0
+    return dot / (norm_a * norm_b)
+
+
+def _keyword_score(query: str, content: str) -> float:
+    """Keyword-Fallback-Score für Facts ohne Embedding (0.0–1.0)."""
+    q_words = set(query.lower().split())
+    c_words = set(content.lower().split())
+    if not q_words:
+        return 0.0
+    matches = len(q_words & c_words)
+    return matches / len(q_words)  # Anteil der Query-Wörter die getroffen wurden
 
 
 @dataclass
@@ -153,11 +230,15 @@ class DriveMemory:
 
     def upsert_fact(self, category: str, content: str, importance: float = 0.5) -> str:
         """
-        Insert oder Update.
+        Insert oder Update mit Embedding-Berechnung.
         >60% Wort-Überschneidung innerhalb derselben Kategorie → Patch (kein Duplikat).
+        Embedding wird bei jedem Upsert (neu) berechnet und inline gespeichert.
         """
         if category not in CATEGORIES:
             category = "personal_fact"
+
+        # Embedding vorab berechnen (best-effort, [] wenn nicht verfügbar)
+        embedding = _compute_embedding(content)
 
         entries = self.load_facts()
         for e in entries:
@@ -165,10 +246,16 @@ class DriveMemory:
                 e.content    = content
                 e.timestamp  = datetime.datetime.now().isoformat()
                 e.importance = max(e.importance, importance)
+                e.embedding  = embedding  # Embedding beim Update erneuern
                 self.save_facts(entries)
                 return f"Updated [{category}]: {content[:80]}"
 
-        entries.append(MemoryEntry(category=category, content=content, importance=importance))
+        entries.append(MemoryEntry(
+            category=category,
+            content=content,
+            importance=importance,
+            embedding=embedding,
+        ))
         self.save_facts(entries)
         return f"Gespeichert [{category}]: {content[:80]}"
 
@@ -194,6 +281,41 @@ class DriveMemory:
             "text": summary,
             "ts": datetime.datetime.now().isoformat(),
         })
+
+    def semantic_search(self, query: str, top_k: int = 6) -> list[MemoryEntry]:
+        """
+        Semantische Suche über alle gespeicherten Facts.
+
+        Methode:
+          1. Query-Embedding berechnen
+          2. Für Facts MIT Embedding: Cosine Similarity
+          3. Für Facts OHNE Embedding (alte Einträge): Keyword-Fallback-Score
+          4. Alle nach Score sortieren, Top-K zurückgeben
+
+        Gibt eine leere Liste zurück wenn keine Facts vorhanden.
+        """
+        facts = self.load_facts()
+        if not facts:
+            return []
+
+        query_embedding = _compute_embedding(query)
+        scored: list[tuple[float, MemoryEntry]] = []
+
+        for fact in facts:
+            if fact.embedding and query_embedding:
+                # Semantische Ähnlichkeit via Cosine Similarity
+                score = _cosine_similarity(query_embedding, fact.embedding)
+            else:
+                # Keyword-Fallback für ältere Facts ohne Embedding
+                score = _keyword_score(query, fact.content) * 0.7  # leicht gewichtet
+
+            # Importance als Tie-Breaker (leichter Boost)
+            score += fact.importance * 0.05
+            scored.append((score, fact))
+
+        # Sortiert nach Score absteigend, dann nach Timestamp
+        scored.sort(key=lambda x: (x[0], x[1].timestamp), reverse=True)
+        return [fact for _, fact in scored[:top_k]]
 
     def load_context(self) -> MemoryContext:
         ego = self.load_ego_state()
