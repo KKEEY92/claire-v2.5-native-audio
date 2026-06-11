@@ -127,9 +127,19 @@ class ClaireAgent(Agent):
             # History-Listener registrieren sobald die Session bereit ist
             self.session.on("conversation_item_created", self._on_conversation_item)
 
-            # Telemetrie asynchron im Hintergrund starten, damit der Greeting-Call nicht blockiert
+            # Telemetrie und Greeting BEIDE als Tasks — on_enter kehrt sofort zurück,
+            # Worker-Prozess bleibt responsiv (kein 60s Heartbeat-Timeout mehr).
             asyncio.create_task(self._send_telemetry())
-            print("[Claire] Telemetry task spawned, generating reply...", flush=True)
+            asyncio.create_task(self._do_greeting())
+            print("[Claire] Telemetry & greeting tasks spawned", flush=True)
+        except Exception as e:
+            print(f"[Claire] ERROR in on_enter: {e}", flush=True)
+            import traceback
+            traceback.print_exc()
+
+    async def _do_greeting(self) -> None:
+        """Greeting-Reply als separater Task — entkoppelt vom Worker-Heartbeat."""
+        try:
             await self.session.generate_reply(
                 instructions=(
                     "Starte mit einem konkreten, körperlichen Situationsanker — "
@@ -138,11 +148,9 @@ class ClaireAgent(Agent):
                     "Keine Begrüßungsformel. Kein 'Hallo'. Nicht mit deinem Namen."
                 )
             )
-            print("[Claire] on_enter reply generation scheduled", flush=True)
+            print("[Claire] Greeting reply sent", flush=True)
         except Exception as e:
-            print(f"[Claire] ERROR in on_enter: {e}", flush=True)
-            import traceback
-            traceback.print_exc()
+            print(f"[Claire] ERROR in _do_greeting: {e}", flush=True)
 
 
     def _on_conversation_item(self, event) -> None:
