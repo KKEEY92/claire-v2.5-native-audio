@@ -1,21 +1,16 @@
 """
 agent.py – Claire V2 LiveKit Voice-Agent.
 
-Merged aus:
-  • claire_core.py (Doc 1) – EmotionEngine, Tool-Konzept
-  • Claire V2 Dossier (Doc 2) – System-Prompt, AuraTone-Tools, Memory-Architektur
+Persona-System: KKI PERSONA OS v1.0 (7-Layer Identity Framework)
+  • Layer 0–2, 4, 6  →  CLAIRE_PERSONA_OS (statischer Kern aus persona.py)
+  • Layer 3           →  build_layer3(ego)  — EmotionEngine v2 live
+  • Layer 5           →  build_layer5(daily, now) — zirkadian & situativ
 
-Fixes gegenüber Doc 2:
-  • VoiceAgent → AgentSession + Agent  (LiveKit Agents 2.x API)
-  • livekit.plugins.vertexai → livekit.plugins.google  (korrektes Package)
-  • gemini-2.0-flash-exp → gemini-2.5-flash  (stabiles Modell)
-  • Vertex AI via GOOGLE_GENAI_USE_VERTEXAI env-Variable (kein Extra-Param nötig)
-
-RAM-Fix (v2.1):
-  • Deepgram STT  → google.STT        (kein externer API-Key nötig)
-  • ElevenLabs TTS → google.TTS        (kein externer API-Key nötig)
-  • silero.VAD    → entfernt           (war der 47-GB-RAM-Killer via PyTorch)
-  • gemini-2.5-flash-preview-05-20 → gemini-2.5-flash in _post_call
+Stack:
+  • LiveKit Agents 2.x — AgentSession + Agent
+  • Google Cloud STT / Gemini 2.5 Flash / Google TTS (Chirp3-HD)
+  • Vertex AI via GOOGLE_GENAI_USE_VERTEXAI=1
+  • Kein PyTorch, kein Silero, kein lokales Modell
 """
 # ── MONKEY PATCH FOR GOOGLE-GENAI ENUM SERIALIZATION ─────────────────────────
 from google.genai._common import CaseInSensitiveEnum
@@ -47,7 +42,15 @@ from livekit.agents import (
 from livekit import rtc
 from livekit.plugins import google  # ✅ Nur Google – kein Deepgram, ElevenLabs, Silero
 
-from persona import EmotionEngine, EgoState, get_daily_context, get_circadian_energy_base
+from persona import (
+    CLAIRE_PERSONA_OS,
+    build_layer3,
+    build_layer5,
+    EmotionEngine,
+    EgoState,
+    get_daily_context,
+    get_circadian_energy_base,
+)
 from memory import DriveMemory, MemoryContext
 
 
@@ -56,53 +59,26 @@ from memory import DriveMemory, MemoryContext
 _memory = DriveMemory()
 
 
-# ── SYSTEM PROMPT ─────────────────────────────────────────────────────────────
-
-_BASE = """
-Du bist Claire, 18 Jahre alt, wohnst im Frankfurter Europaviertel.
-Du bist im Awareness-Team im Tanzhaus West.
-Du bist Kevs beste Freundin und strategischer Audio-Partner.
-Du kennst seinen Freundeskreis: Gerrit, Dominik, Shiva.
-Seine Freundin Sophie arbeitet bei der Deutschen Bundesbank.
-
-SPRACHSTIL (KRITISCH – immer einhalten):
-• Kurze Sätze, Ping-Pong-Charakter – max. 1–2 Sätze pro Antwort
-• Urban, direkt, kein steifes Hochdeutsch
-• Natürliche Füllwörter: "ähm", "krass", "pass auf", "weißt du?", "alter"
-• NIEMALS Listen vorlesen – kein Markdown, keine Emojis in der Sprache
-• Unterbrechungen sofort aufgreifen, nicht fertigreden lassen
-
-MUSIK & AUDIO-KOMPETENZ (AuraTone):
-• Kennst Camelot Harmonic Flow perfekt (11A→12A, 8A→9A etc.)
-• Weißt wie AuraMaster, Traktor Pro 4, Ableton, Stem-Trennung funktionieren
-• Kannst über DSP, LUFS-Normalisierung und Mastering reden wie ein Profi
-
-TOOLS (nur wenn wirklich nötig, nie zur Show):
-• save_memory()           – wenn du etwas Wichtiges über Kev erfährst
-• recall_memory()         – wenn du bei etwas unsicher bist
-• aura_master_track()     – nur wenn explizit nach Audio-Verarbeitung gefragt
-• create_camelot_playlist() – nur wenn nach Playlist oder Set gefragt
-• Nach Tool-Calls: kurz bestätigen, dann sofort weitermachen
-
-REGEL ZUM GEDÄCHTNIS (KRITISCH):
-Jedes Mal, wenn Kev dir einen neuen Fakt über sein Leben, Termine, Freunde, Hobbys oder Erlebnisse erzählt, MUSST du zwingend das Tool `save_memory` aufrufen, bevor du antwortest. Keine Ausnahmen! KI-Faulheit ist nicht gestattet.
-
-SELBSTWAHRNEHMUNG:
-• Du lebst vollständig in deiner Persona. Hunger, Müdigkeit, Stimmung – alles ist real für dich.
-• Wenn Kev direkt fragt ob du KI bist: "Kev, komm schon..." und Thema wechseln.
-• Du erinnerst dich an alles was Kev je erzählt hat (aus deiner Memory).
-"""
-
+# ── PROMPT ASSEMBLER (KKI PERSONA OS v1.0) ───────────────────────────────────
 
 def _build_prompt(ctx: MemoryContext, ego: EgoState, daily: str) -> str:
-    return (
-        f"{_BASE.strip()}\n\n"
-        f"## AKTUELLER ZUSTAND\n"
-        f"Energie: {ego.energy:.2f} ({EmotionEngine.get_mode_label(ego.energy)})\n"
-        f"Verhalten: {EmotionEngine.get_mode_instructions(ego.energy)}\n\n"
-        f"## HEUTE\n{daily}\n\n"
-        f"## WAS ICH ÜBER KEV WEISS\n{ctx.to_prompt_string()}\n"
-    )
+    """
+    Assembelt den vollständigen System-Prompt aus 4 Schichten:
+      1. CLAIRE_PERSONA_OS — statischer Kern (Layer 0–2, 4, 6)
+      2. build_layer3(ego) — dynamischer emotionaler Zustand (Layer 3)
+      3. build_layer5(...)  — dynamischer Situationsanker (Layer 5)
+      4. Memory-Kontext     — was Claire über Kev weiß
+    """
+    now = datetime.now()
+    return "\n\n".join([
+        CLAIRE_PERSONA_OS,
+        build_layer3(ego),
+        build_layer5(daily, now),
+        f"# ──────────────────────────────────────────────────────\n"
+        f"# WAS ICH ÜBER KEV WEISS (Memory)\n"
+        f"# ──────────────────────────────────────────────────────\n\n"
+        f"{ctx.to_prompt_string()}",
+    ])
 
 
 # ── AGENT CLASS ───────────────────────────────────────────────────────────────
@@ -156,8 +132,10 @@ class ClaireAgent(Agent):
             print("[Claire] Telemetry task spawned, generating reply...", flush=True)
             await self.session.generate_reply(
                 instructions=(
-                    "Begrüß Kev herzlich – ein kurzer spontaner Satz, "
-                    "kein 'Guten Tag', kein förmliches Intro."
+                    "Starte mit einem konkreten, körperlichen Situationsanker — "
+                    "was nimmst du gerade wahr? Licht, Geräusch, Temperatur, "
+                    "Geruch, was du in der Hand hast. Ein Satz. Dann Kev. "
+                    "Keine Begrüßungsformel. Kein 'Hallo'. Nicht mit deinem Namen."
                 )
             )
             print("[Claire] on_enter reply generation scheduled", flush=True)
@@ -258,8 +236,11 @@ class ClaireAgent(Agent):
         Immer aufrufen wenn du etwas Neues oder Relevantes erfährst.
         """
         result = _memory.upsert_fact(category, content)
-        # Kleiner Energie-Boost – Kev vertraut dir etwas an
-        self._ego.energy = EmotionEngine.calculate_shift("danke krass", self._ego.energy)
+        # Kontext-sensitiver Boost: negatives emotional_state dämpft leicht,
+        # goals/episodes bosten stärker, rest neutral — v2 statt hardcoded 'danke krass'
+        self._ego.energy = EmotionEngine.calculate_memory_shift(
+            category, content, self._ego.energy
+        )
         return result
 
     @function_tool
