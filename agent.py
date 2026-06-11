@@ -38,6 +38,8 @@ from livekit.agents import (
     function_tool,
     tts,
     tokenize,
+    llm,
+    ModelSettings,
 )
 from livekit import rtc
 from livekit.plugins import google  # ✅ Nur Google – kein Deepgram, ElevenLabs, Silero
@@ -151,6 +153,39 @@ class ClaireAgent(Agent):
             print("[Claire] Greeting reply sent", flush=True)
         except Exception as e:
             print(f"[Claire] ERROR in _do_greeting: {e}", flush=True)
+
+
+    # ── FEEDBACK-LOOP: Layer 3 frisch pro Turn injizieren ────────────────────
+
+    async def llm_node(
+        self,
+        chat_ctx: llm.ChatContext,
+        tools: list,
+        model_settings: ModelSettings,
+    ):
+        """
+        Wird VOR jedem LLM-Call gefeuert.
+
+        Injiziert den aktuellen EgoState (Layer 3) als trailing system message.
+        Das Modell sieht so immer den echten Energie-Level des aktuellen Turns —
+        nicht den Snapshot vom Session-Start.
+
+        Feedback-Loop geschlossen:
+          User spricht → ego.energy update → llm_node → LLM sieht neuen Layer 3
+        """
+        # Frischer Layer-3-Snapshot basierend auf aktuellem ego.energy
+        fresh_layer3 = build_layer3(self._ego)
+
+        # Als trailing system message einfügen
+        # (überschreibt den statischen Kern nicht, aber LLM priorisiert
+        #  spätere System-Messages als aktuellste Direktive)
+        chat_ctx.add_message(
+            role="system",
+            content=f"[LIVE-UPDATE Layer 3 — {datetime.now().strftime('%H:%M')}]\n{fresh_layer3}",
+        )
+
+        # Standard-LLM-Call — unverändert weiterdelegieren
+        return super().llm_node(chat_ctx, tools, model_settings)
 
 
     def _on_conversation_item(self, event) -> None:
