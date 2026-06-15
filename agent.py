@@ -126,6 +126,21 @@ class ThinkTagFilter:
         return out
 
 
+# ── PROSODIE: Stimme an Energie koppeln ──────────────────────────────────────
+
+def _prosody_for_energy(energy: float) -> tuple[float, float]:
+    """
+    Mappt ego.energy auf (speaking_rate, volume_gain_db) für Google TTS.
+    Zentriert auf den zirkadianen Default (~0.65) → dort neutral (1.0 / 0 dB).
+    Müde (Dead Battery) klingt langsamer & leiser, Hyper schneller & präsenter.
+    """
+    rate = 1.0 + (energy - 0.65) * 0.35
+    rate = max(0.85, min(1.12, rate))      # konservativer, natürlicher Bereich
+    gain = (energy - 0.65) * 4.0
+    gain = max(-3.0, min(2.0, gain))
+    return round(rate, 3), round(gain, 2)
+
+
 # ── LLM-PROVIDER-SWITCH (.env-gesteuert) ─────────────────────────────────────
 
 def setup_llm():
@@ -377,20 +392,18 @@ class ClaireAgent(Agent):
         self, text: AsyncIterable[str], model_settings: ModelSettings
     ) -> AsyncGenerator[rtc.AudioFrame, None]:
         print("[TTS Node] Started", flush=True)
-        # Puffer den Text, um leere Streams und Pipeline-Hangs zu verhindern
-        buffered_text = []
-        async for chunk in text:
-            print(f"[TTS Node] Chunk: {chunk}", flush=True)
-            buffered_text.append(chunk)
-
-        full_text = "".join(buffered_text).strip()
-        print(f"[TTS Node] Full text: '{full_text}'", flush=True)
-        if not full_text:
-            print("[TTS Node] Empty text, skipping", flush=True)
-            return
 
         activity = self._get_activity_or_raise()
         assert activity.tts is not None, "tts_node called but no TTS node is available"
+
+        # ② Prosodie an Energie koppeln — pro Turn, vor der Synthese.
+        try:
+            rate, gain = _prosody_for_energy(self._ego.energy)
+            activity.tts.update_options(speaking_rate=rate, volume_gain_db=gain)
+            print(f"[TTS Node] Prosodie: rate={rate} gain={gain}dB "
+                  f"(energy={self._ego.energy:.2f})", flush=True)
+        except Exception as e:
+            print(f"[TTS Node] Prosodie-Update übersprungen: {e}", flush=True)
 
         wrapped_tts = activity.tts
         if not activity.tts.capabilities.streaming:
@@ -400,19 +413,34 @@ class ClaireAgent(Agent):
             )
 
         conn_options = activity.session.conn_options.tts_conn_options
-        print("[TTS Node] Requesting stream from TTS provider...", flush=True)
+        print("[TTS Node] Opening TTS stream...", flush=True)
         try:
             async with wrapped_tts.stream(conn_options=conn_options) as stream:
-                print("[TTS Node] Pushing text to stream...", flush=True)
-                stream.push_text(full_text)
-                stream.end_input()
+                # ① Echtes Streaming: Text wird eingespeist, SOBALD er ankommt,
+                # während Frames parallel rausgehen. Der TTS-eigene Sentence-
+                # Tokenizer synthetisiert satzweise → TTFT bricht massiv ein,
+                # statt auf die komplette LLM-Antwort zu warten.
+                async def _feed_text() -> bool:
+                    sent_any = False
+                    async for chunk in text:
+                        if chunk:
+                            stream.push_text(chunk)
+                            sent_any = True
+                    stream.end_input()   # sauberer Abschluss — auch bei leerem Text
+                    return sent_any
+
+                feed_task = asyncio.create_task(_feed_text())
                 frame_count = 0
-                async for ev in stream:
-                    frame_count += 1
-                    if frame_count % 50 == 0:
-                        print(f"[TTS Node] Received {frame_count} frames...", flush=True)
-                    yield ev.frame
-                print(f"[TTS Node] Finished. Total frames: {frame_count}", flush=True)
+                try:
+                    async for ev in stream:
+                        frame_count += 1
+                        yield ev.frame
+                finally:
+                    # Feeder immer abwarten, damit kein Task verwaist
+                    await feed_task
+
+                print(f"[TTS Node] Finished. Frames: {frame_count}, "
+                      f"text_sent={feed_task.result()}", flush=True)
         except Exception as e:
             print(f"[TTS Node] ERROR in tts_node stream: {e}", flush=True)
             import traceback
