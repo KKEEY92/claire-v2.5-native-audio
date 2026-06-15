@@ -53,6 +53,7 @@ from persona import (
     EgoState,
     get_daily_context,
     get_circadian_energy_base,
+    format_time_since,
 )
 from memory import DriveMemory, MemoryContext
 
@@ -164,14 +165,15 @@ def _build_prompt(ctx: MemoryContext, ego: EgoState, daily: str) -> str:
     Assembelt den vollständigen System-Prompt aus 4 Schichten:
       1. CLAIRE_PERSONA_OS — statischer Kern (Layer 0–2, 4, 6)
       2. build_layer3(ego) — dynamischer emotionaler Zustand (Layer 3)
-      3. build_layer5(...)  — dynamischer Situationsanker (Layer 5)
+      3. build_layer5(...)  — dynamischer Situationsanker (Layer 5) + Wiedersehens-Anker
       4. Memory-Kontext     — was Claire über Kev weiß
     """
     now = datetime.now()
+    reunion = format_time_since(ctx.last_seen, now)
     return "\n\n".join([
         CLAIRE_PERSONA_OS,
         build_layer3(ego),
-        build_layer5(daily, now),
+        build_layer5(daily, now, reunion),
         f"# ──────────────────────────────────────────────────────\n"
         f"# WAS ICH ÜBER KEV WEISS (Memory)\n"
         f"# ──────────────────────────────────────────────────────\n\n"

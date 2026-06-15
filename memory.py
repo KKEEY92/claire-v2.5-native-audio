@@ -149,6 +149,7 @@ class MemoryContext:
     facts: list[MemoryEntry] = field(default_factory=list)
     ego_energy: float = 0.65
     last_summary: str = ""
+    last_seen: str = ""   # ISO-Timestamp des letzten Gesprächsendes (für Zeitgefühl)
 
     def to_prompt_string(self, max_per_cat: int = 5) -> str:
         """Kompakter String für den System-Prompt."""
@@ -323,6 +324,7 @@ class DriveMemory:
             facts=self.load_facts(),
             ego_energy=ego.get("energy", 0.65),
             last_summary=self.load_last_summary(),
+            last_seen=ego.get("ts", ""),   # save_ego_state() schreibt ts beim Post-Call
         )
 
     # ── DRIVE I/O (privat) ────────────────────────────────────────────────────

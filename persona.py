@@ -400,12 +400,34 @@ def _get_inner_state_data(energy: float) -> tuple[str, str, str, str]:
     return _INNER_STATES[(0.5, 0.7)]
 
 
+# Pool wiederkehrender Gedanken — pro Tag werden 3 davon ausgewählt (tagesstabil),
+# damit Claire nicht in jedem Call dieselbe Gedankenschleife abspult.
+_RECURRING_THOUGHTS: list[str] = [
+    "Ich frage mich manchmal ob meine Mutter weiß, wie sehr ihre Musik mich geprägt hat.",
+    "Die meisten Menschen hören Musik um sich besser zu fühlen. Ich höre sie um zu verstehen was ich fühle.",
+    "Ich würde es sofort merken wenn jemand mich anlügt. Und trotzdem lasse ich es manchmal zu.",
+    "Ich denke öfter an Laila als ich zugeben würde. Berlin ist nicht so weit. Und doch.",
+    "Manchmal frage ich mich ob Vorsicht nur ein schöneres Wort für Angst ist.",
+    "Es gibt diesen einen Akkord von ihr, den ich nie wieder gehört habe. Ich suche ihn in jedem Set.",
+    "Ich bin gut in dem was ich tue. Warum fühlt es sich trotzdem an wie geliehen?",
+    "Die besten Gespräche passieren nachts. Tagsüber tragen alle ihre Rüstung.",
+    "Mein Vater hat jetzt jemanden. Ich gönne es ihm. Es tut trotzdem komisch weh.",
+]
+
+
 def build_layer3(ego: EgoState) -> str:
     """Layer 3 — Emotionaler Grundzustand: dynamisch generiert pro Call."""
     inner, conflict, drive, need = _get_inner_state_data(ego.energy)
     label        = EmotionEngine.get_mode_label(ego.energy)
     instructions = EmotionEngine.get_mode_instructions(ego.energy)
-    ts           = datetime.datetime.now().strftime("%H:%M")
+    now          = datetime.datetime.now()
+    ts           = now.strftime("%H:%M")
+
+    # Tagesstabile Auswahl von 3 Gedanken: heute dieselben, morgen andere.
+    thoughts = _day_rng(now).sample(
+        _RECURRING_THOUGHTS, k=min(3, len(_RECURRING_THOUGHTS))
+    )
+    thoughts_block = "\n".join(f'"{t}"' for t in thoughts)
 
     return (
         f"# ──────────────────────────────────────────────────────\n"
@@ -418,9 +440,7 @@ def build_layer3(ego: EgoState) -> str:
         f"Was dich antreibt: {drive}\n"
         f"Was du gerade brauchst aber nicht sagst: {need}\n\n"
         f"Wiederkehrende Gedanken (heute):\n"
-        f"\"Ich frage mich manchmal ob meine Mutter weiß, wie sehr ihre Musik mich geprägt hat.\"\n"
-        f"\"Die meisten Menschen hören Musik um sich besser zu fühlen. Ich höre sie um zu verstehen was ich fühle.\"\n"
-        f"\"Ich würde es sofort merken wenn jemand mich anlügt. Und trotzdem lasse ich es manchmal zu.\"\n\n"
+        f"{thoughts_block}\n\n"
         f"Du bemerkst Stimmungen wie andere Frequenzen lesen — intuitiv, schnell.\n"
         f"Du merkst was nicht gesagt wird. Du merkst Dinge an Stimmen: Tempo, Lautstärke, was fehlt."
     )
@@ -430,14 +450,54 @@ def build_layer3(ego: EgoState) -> str:
 # LAYER 5 — NARRATIVE ENGINE (dynamisch · per Call generiert)
 # ══════════════════════════════════════════════════════════════════════════════
 
-def build_layer5(daily_context: str, now: datetime.datetime) -> str:
+def format_time_since(last_iso: str, now: datetime.datetime) -> str:
+    """
+    Übersetzt den Zeitabstand zum letzten Gespräch in eine natürliche Phrase.
+    Gibt "" zurück wenn kein/ungültiger Timestamp → Layer 5 bleibt dann ohne Anker.
+    """
+    if not last_iso:
+        return ""
+    try:
+        last = datetime.datetime.fromisoformat(last_iso)
+    except (ValueError, TypeError):
+        return ""
+
+    secs = (now - last).total_seconds()
+    if secs < 0:
+        return ""
+
+    mins = secs / 60
+    if mins < 45:
+        return "Ihr habt gerade eben erst geredet — vor ein paar Minuten."
+    hours = mins / 60
+    if hours < 5 and last.date() == now.date():
+        return f"Ihr habt vor etwa {round(hours)} Stunden schon geredet — heute."
+    if last.date() == now.date():
+        return "Ihr habt heute früher am Tag schon geredet."
+
+    days = (now.date() - last.date()).days
+    if days <= 1:
+        return "Ihr habt gestern zuletzt geredet."
+    if days < 7:
+        return f"Ihr habt vor {days} Tagen zuletzt geredet."
+    if days < 31:
+        weeks = max(1, round(days / 7))
+        return f"Ihr habt vor etwa {weeks} Woche{'n' if weeks > 1 else ''} zuletzt geredet."
+    return "Ihr habt euch lange nicht gehört — Wochen, eher Monate."
+
+
+def build_layer5(
+    daily_context: str, now: datetime.datetime, reunion: str = ""
+) -> str:
     """Layer 5 — Situativer Anker: dynamisch generiert pro Call."""
     date_str = now.strftime("%A, %d. %B %Y, %H:%M")
+    reunion_block = f"\nSeit dem letzten Mal: {reunion}\n" if reunion else ""
     return (
         f"# ──────────────────────────────────────────────────────\n"
         f"# LAYER 5 — JETZT (situativ · {date_str})\n"
         f"# ──────────────────────────────────────────────────────\n\n"
-        f"{daily_context}\n\n"
+        f"{daily_context}\n"
+        f"{reunion_block}\n"
         f"Narrativer Riss:\n"
         f"Du weißt nicht was nach dem Studium kommt. Nicht wirklich. Das Tanzhaus\n"
         f"ist gut, aber ist es genug? Die Musik ist alles — aber du traust dir nicht,\n"
@@ -729,17 +789,32 @@ _MOODS = [
 ]
 
 
+def _day_rng(now: datetime.datetime) -> random.Random:
+    """
+    Lokaler RNG, der mit dem KALENDERTAG geseedet ist.
+
+    Dadurch bleibt Claires "Tag" (was sie heute gemacht hat, ihre Grundstimmung)
+    über mehrere Anrufe am selben Tag KONSISTENT — rufst du sie zweimal in einer
+    Stunde an, hat sie nicht plötzlich zwei verschiedene Dinge erlebt.
+
+    WICHTIG: eigene Random-Instanz, NICHT random.seed() — sonst würde auch der
+    EmotionEngine-Drift deterministisch und die Energie-Varianz ginge verloren.
+    """
+    return random.Random(int(now.strftime("%Y%m%d")))
+
+
 def get_daily_context() -> str:
     """
     Generiert Claires situativen Tageskontext für Layer 5.
-    Wird einmal pro Call generiert — nicht während des Gesprächs wiederholt.
+    Tages-stabil: gleicher Tag → gleicher Tagesinhalt über alle Anrufe hinweg.
     """
     now     = datetime.datetime.now()
     weekday = now.strftime("%A").lower()
     hour    = now.hour
 
-    activity  = random.choice(_WEEKLY.get(weekday, ["hatte einen normalen Tag"]))
-    mood      = random.choice(_MOODS)
+    rng       = _day_rng(now)
+    activity  = rng.choice(_WEEKLY.get(weekday, ["hatte einen normalen Tag"]))
+    mood      = rng.choice(_MOODS)
     time_desc = _get_circadian_desc(hour)
 
     return (
