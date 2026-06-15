@@ -271,6 +271,36 @@ class ClaireAgent(Agent):
         Feedback-Loop geschlossen:
           User spricht → ego.energy update → llm_node → LLM sieht neuen Layer 3
         """
+        # ── PROAKTIVES RAG ───────────────────────────────────────────────────
+        # Letzte User-Äußerung gegen die Memory matchen und relevante Fakten
+        # automatisch injizieren — VOR Layer 3, damit Layer 3 die letzte (also
+        # höchstpriorisierte) System-Message bleibt.
+        # Entscheidend für lokale Modelle: Erinnern funktioniert hier auch dann,
+        # wenn das Modell recall_memory NICHT von selbst aufruft.
+        try:
+            last_user = next(
+                (
+                    m.text_content
+                    for m in reversed(chat_ctx.items)
+                    if getattr(m, "role", None) == "user" and m.text_content
+                ),
+                None,
+            )
+            if last_user:
+                hits = await asyncio.to_thread(_memory.semantic_search, last_user, 3)
+                if hits:
+                    recalled = "\n".join(f"• [{h.category}] {h.content}" for h in hits)
+                    chat_ctx.add_message(
+                        role="system",
+                        content=(
+                            "[ERINNERUNG — was du über Kev weißt, passend zu gerade. "
+                            "Nutze es nur wenn es sich natürlich ergibt, lies es nicht vor.]\n"
+                            f"{recalled}"
+                        ),
+                    )
+        except Exception as e:
+            print(f"[RAG] Proaktiver Recall fehlgeschlagen: {e}", flush=True)
+
         # Frischer Layer-3-Snapshot basierend auf aktuellem ego.energy
         fresh_layer3 = build_layer3(self._ego)
 
@@ -404,7 +434,9 @@ class ClaireAgent(Agent):
         Speichert einen wichtigen Fakt über Kev persistent in der Memory.
         Immer aufrufen wenn du etwas Neues oder Relevantes erfährst.
         """
-        result = _memory.upsert_fact(category, content)
+        # upsert_fact macht Drive-I/O + synchrone Vertex-Embedding-Berechnung
+        # → in einen Thread auslagern, damit der Audio-Event-Loop nicht blockiert.
+        result = await asyncio.to_thread(_memory.upsert_fact, category, content)
         # Kontext-sensitiver Boost: negatives emotional_state dämpft leicht,
         # goals/episodes bosten stärker, rest neutral — v2 statt hardcoded 'danke krass'
         self._ego.energy = EmotionEngine.calculate_memory_shift(
@@ -422,7 +454,9 @@ class ClaireAgent(Agent):
         Nutze das wenn du dir bei etwas nicht sicher bist oder etwas nachschlagen willst.
         Gibt die relevantesten Einträge zurück — nach semantischer Ähnlichkeit, nicht Keyword.
         """
-        hits = _memory.semantic_search(query, top_k=6)
+        # semantic_search berechnet ein Query-Embedding (synchroner Vertex-Call)
+        # → Thread-Offload gegen Event-Loop-Blockade.
+        hits = await asyncio.to_thread(_memory.semantic_search, query, 6)
         if not hits:
             return "Nichts Passendes in meiner Memory gefunden."
         lines = [f"[{h.category}] {h.content}" for h in hits]
@@ -519,6 +553,75 @@ async def entrypoint(ctx: JobContext):
     await _post_call(session, agent)
 
 
+_FACT_CATEGORIES = (
+    "personal_fact", "emotional_state", "relationship",
+    "past_event", "preference", "goal", "episode",
+)
+
+
+def _extract_facts_post_call(transcript: str) -> None:
+    """
+    Synchrones Sicherheitsnetz (läuft im Thread via to_thread):
+    extrahiert strukturierte Fakten über Kev aus dem Transkript und upsertet sie.
+    Greift auch dann, wenn das Live-Modell save_memory nie aufgerufen hat.
+    """
+    import vertexai
+    from vertexai.generative_models import (
+        GenerativeModel, HarmCategory, HarmBlockThreshold, SafetySetting,
+    )
+    vertexai.init(
+        project=os.getenv("GOOGLE_CLOUD_PROJECT", "abstract-robot-466303-p5"),
+        location=os.getenv("GOOGLE_CLOUD_LOCATION", "europe-west3"),
+    )
+    cats = ", ".join(_FACT_CATEGORIES)
+    extractor = GenerativeModel(
+        "gemini-2.5-flash",
+        system_instruction=(
+            "Du bist ein Extraktions-Tool. Lies das Transkript und gib NUR ein "
+            "JSON-Array zurück: [{\"category\": <einer von: " + cats + ">, "
+            "\"content\": <ein kurzer Fakt über Kev auf Deutsch>}]. "
+            "Nur NEUE, konkrete, dauerhafte Fakten über Kev (keine Smalltalk-Floskeln, "
+            "keine Aussagen über Claire). Wenn nichts Relevantes: leeres Array []. "
+            "Kein Markdown, kein Fließtext, nur das JSON-Array."
+        ),
+    )
+    _safety_off = [
+        SafetySetting(category=HarmCategory.HARM_CATEGORY_HARASSMENT,        threshold=HarmBlockThreshold.BLOCK_NONE),
+        SafetySetting(category=HarmCategory.HARM_CATEGORY_HATE_SPEECH,       threshold=HarmBlockThreshold.BLOCK_NONE),
+        SafetySetting(category=HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold=HarmBlockThreshold.BLOCK_NONE),
+        SafetySetting(category=HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold=HarmBlockThreshold.BLOCK_NONE),
+    ]
+    resp = extractor.generate_content(transcript[:6000], safety_settings=_safety_off)
+
+    # Robustes JSON-Parsing: evtl. Markdown-Fences entfernen, Array isolieren
+    raw = (resp.text or "").strip()
+    if raw.startswith("```"):
+        raw = raw.strip("`")
+        raw = raw[raw.find("["):]
+    start, end = raw.find("["), raw.rfind("]")
+    if start == -1 or end == -1:
+        print("[Post-Call] Extraktion: kein JSON-Array gefunden – übersprungen.")
+        return
+    try:
+        facts = json.loads(raw[start:end + 1])
+    except json.JSONDecodeError as e:
+        print(f"[Post-Call] Extraktion: JSON ungültig ({e}) – übersprungen.")
+        return
+
+    saved = 0
+    for item in facts if isinstance(facts, list) else []:
+        if not isinstance(item, dict):
+            continue
+        content = str(item.get("content", "")).strip()
+        category = str(item.get("category", "personal_fact")).strip()
+        if len(content) < 4:
+            continue
+        _memory.upsert_fact(category, content)   # Dedup intern
+        saved += 1
+    if saved:
+        print(f"[Post-Call] Fakten-Extraktion: {saved} Fakt(en) gesichert.")
+
+
 async def _post_call(session: AgentSession, agent: ClaireAgent):
     """
     Wird nach jedem Gespräch ausgeführt:
@@ -578,6 +681,15 @@ async def _post_call(session: AgentSession, agent: ClaireAgent):
             _memory.save_summary(resp.text.strip())
         except Exception as e:
             print(f"[Post-Call] Summary fehlgeschlagen: {e}")
+
+        # ── FAKTEN-EXTRAKTION (Sicherheitsnetz) ───────────────────────────────
+        # Unabhängig davon, ob das Live-Modell save_memory aufgerufen hat — wichtig
+        # für lokale Modelle mit unzuverlässigem Tool-Calling. Zieht strukturierte
+        # Fakten aus dem Transkript und upsertet sie (Dedup greift in upsert_fact).
+        try:
+            await asyncio.to_thread(_extract_facts_post_call, transcript)
+        except Exception as e:
+            print(f"[Post-Call] Fakten-Extraktion fehlgeschlagen: {e}")
 
         print(
             f"[Post-Call] Done. "
