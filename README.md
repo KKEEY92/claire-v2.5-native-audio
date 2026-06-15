@@ -54,6 +54,11 @@ circadian rhythm simulation, and professional-grade audio intelligence.*
 |---|---|
 | **Local LLM** | `.env`-driven `LLM_PROVIDER` switch — `google` (Gemini 2.5 Flash, Cloud) ⇄ `lmstudio` (local, OpenAI-compatible). STT/TTS stay on Google Cloud either way. See [Local LLM (LM Studio)](#-local-llm-lm-studio) |
 | **Reasoning filter** | Deterministic `<think>…</think>` stream filter in `llm_node` — strips reasoning tokens before TTS (handles tags split across chunks); tool-call chunks pass through untouched so memory stays intact |
+| **Voice latency** | `tts_node` now streams sentence-by-sentence (text fed as it arrives, frames out in parallel) instead of buffering the full reply — large TTFT cut |
+| **Voice prosody** | Speaking rate + volume now track `ego.energy` per turn (tired = slower/quieter, hyper = faster/present) |
+| **Proactive memory** | `llm_node` auto-injects the top-k relevant facts for each user turn — recall no longer depends on the model choosing to call `recall_memory` (key for local models) |
+| **Memory safety net** | Post-call structured fact extraction from the transcript — facts persist even if the live model never fired `save_memory`; facts cached in-memory + Drive/embedding I/O off the audio event loop |
+| **Continuity** | Day-stable daily context & Layer-3 thoughts (consistent across calls on the same day) + a "time since last talk" anchor in Layer 5 |
 | **Frontend** | LiveKit connection state machine (`idle` → `token_fetch` → `connecting` → `connected` / `error`) with German UI and **Erneut verbinden** retry |
 | **Hang-up** | `disconnect()` tears down the LiveKit room, stops mic tracks, and resets Zustand store (no zombie sessions) |
 | **Telemetry** | Agent sends `factsCount`, `turnCount`, `sessionSeconds`; Analytics view shows live data (`mm:ss` session time) |
