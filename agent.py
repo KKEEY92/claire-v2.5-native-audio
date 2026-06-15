@@ -8,9 +8,10 @@ Persona-System: KKI PERSONA OS v1.0 (7-Layer Identity Framework)
 
 Stack:
   • LiveKit Agents 2.x — AgentSession + Agent
-  • Google Cloud STT / Gemini 2.5 Flash / Google TTS (Chirp3-HD)
+  • Google Cloud STT / Google TTS (Chirp3-HD) — immer Cloud
+  • LLM via .env-Switch (LLM_PROVIDER): Gemini 2.5 Flash (Cloud) ⇄ LM Studio (lokal)
   • Vertex AI via GOOGLE_GENAI_USE_VERTEXAI=1
-  • Kein PyTorch, kein Silero, kein lokales Modell
+  • Kein PyTorch, kein Silero (STT/TTS bleiben Cloud; nur das LLM kann lokal laufen)
 """
 # ── MONKEY PATCH FOR GOOGLE-GENAI ENUM SERIALIZATION ─────────────────────────
 from google.genai._common import CaseInSensitiveEnum
@@ -59,6 +60,101 @@ from memory import DriveMemory, MemoryContext
 # ── SINGLETON MEMORY ──────────────────────────────────────────────────────────
 
 _memory = DriveMemory()
+
+
+# ── <think>-STREAM-FILTER ────────────────────────────────────────────────────
+
+class ThinkTagFilter:
+    """
+    Entfernt <think>...</think>-Blöcke deterministisch aus einem Token-Stream,
+    *bevor* der Text an den TTS-Knoten geht. Reasoning-Modelle (DeepSeek-R1 etc.)
+    emittieren ihren Denkprozess sonst live als Audio.
+
+    Robust über Chunk-Grenzen: Ein Tag, das auf zwei Chunks aufgeteilt ankommt
+    (z.B. '<thi' + 'nk>'), wird korrekt zusammengesetzt — die unvollständige
+    Tag-Hälfte wird zurückgehalten, nicht versehentlich vorgelesen.
+    """
+
+    OPEN = "<think>"
+    CLOSE = "</think>"
+
+    def __init__(self):
+        self.in_think = False
+        self.buffer = ""
+
+    @staticmethod
+    def _partial_tail(buffer: str, tag: str) -> int:
+        """Längstes Suffix von buffer, das ein echtes Präfix von tag ist (für split-Tags)."""
+        for k in range(min(len(tag) - 1, len(buffer)), 0, -1):
+            if buffer.endswith(tag[:k]):
+                return k
+        return 0
+
+    def filter_chunk(self, text: str) -> str:
+        self.buffer += text
+        out = ""
+        while True:
+            if self.in_think:
+                idx = self.buffer.find(self.CLOSE)
+                if idx == -1:
+                    # Komplett im Denkmodus → alles verwerfen,
+                    # nur ein evtl. angefangenes </think> als Tail behalten
+                    keep = self._partial_tail(self.buffer, self.CLOSE)
+                    self.buffer = self.buffer[len(self.buffer) - keep:] if keep else ""
+                    break
+                self.buffer = self.buffer[idx + len(self.CLOSE):]
+                self.in_think = False
+            else:
+                idx = self.buffer.find(self.OPEN)
+                if idx == -1:
+                    keep = self._partial_tail(self.buffer, self.OPEN)
+                    emit_len = len(self.buffer) - keep
+                    out += self.buffer[:emit_len]
+                    self.buffer = self.buffer[emit_len:]
+                    break
+                out += self.buffer[:idx]
+                self.buffer = self.buffer[idx + len(self.OPEN):]
+                self.in_think = True
+        return out
+
+    def flush(self) -> str:
+        """Am Stream-Ende: zurückgehaltenen Rest ausgeben (nur wenn nicht im Denkmodus)."""
+        if self.in_think:
+            return ""
+        out, self.buffer = self.buffer, ""
+        return out
+
+
+# ── LLM-PROVIDER-SWITCH (.env-gesteuert) ─────────────────────────────────────
+
+def setup_llm():
+    """
+    Wählt das LLM anhand von LLM_PROVIDER:
+      • 'google'   (default) → Cloud-Claire, Gemini 2.5 Flash via Vertex AI
+      • 'lmstudio'           → Lokal-Claire, OpenAI-kompatibler LM-Studio-Endpoint
+
+    WICHTIG (LiveKit Agents 1.x): Tools hängen an der ClaireAgent-Klasse, NICHT
+    am LLM. Deshalb KEIN fnc_ctx-Parameter — den gibt es in 1.x nicht mehr.
+    Für zuverlässiges Tool-Calling (save_memory/recall_memory) ein echtes
+    Instruct-Modell nehmen (z.B. qwen2.5-7b-instruct), kein R1-Reasoning-Distill.
+    """
+    provider = os.getenv("LLM_PROVIDER", "google").lower()
+
+    if provider == "lmstudio":
+        try:
+            from livekit.plugins import openai
+        except ImportError as e:
+            raise RuntimeError(
+                "LLM_PROVIDER=lmstudio braucht das openai-Plugin:\n"
+                "  .venv/bin/pip install livekit-plugins-openai"
+            ) from e
+        model = os.getenv("LMSTUDIO_MODEL", "qwen2.5-7b-instruct")
+        base_url = os.getenv("LMSTUDIO_URL", "http://localhost:1234/v1")
+        print(f"🤖 [LLM] LOKAL via LM Studio — {model} @ {base_url}", flush=True)
+        return openai.LLM(base_url=base_url, api_key="lm-studio", model=model)
+
+    print("☁️  [LLM] CLOUD via Google Gemini 2.5 Flash", flush=True)
+    return google.LLM(model="gemini-2.5-flash")
 
 
 # ── PROMPT ASSEMBLER (KKI PERSONA OS v1.0) ───────────────────────────────────
@@ -184,8 +280,36 @@ class ClaireAgent(Agent):
             content=f"[LIVE-UPDATE Layer 3 — {datetime.now().strftime('%H:%M')}]\n{fresh_layer3}",
         )
 
-        # Standard-LLM-Call — unverändert weiterdelegieren
-        return super().llm_node(chat_ctx, tools, model_settings)
+        # Standard-LLM-Call — Stream durch den <think>-Filter schleusen,
+        # damit Reasoning-Tokens NICHT in den TTS-Knoten (tts_node) laufen.
+        # Tool-Call-Chunks werden unangetastet durchgereicht → Memory bleibt intakt.
+        think_filter = ThinkTagFilter()
+        async for chunk in super().llm_node(chat_ctx, tools, model_settings):
+            if isinstance(chunk, str):
+                cleaned = think_filter.filter_chunk(chunk)
+                if cleaned:
+                    yield cleaned
+                continue
+
+            delta = getattr(chunk, "delta", None)
+            if delta is not None and delta.content:
+                cleaned = think_filter.filter_chunk(delta.content)
+                if delta.tool_calls:
+                    # Tool-Call-Chunk mit Text: Text säubern, Chunk behalten
+                    delta.content = cleaned or None
+                    yield chunk
+                elif cleaned:
+                    delta.content = cleaned
+                    yield chunk
+                # reiner Denk-Text ohne Tool-Calls → komplett schlucken
+            else:
+                # Metadaten / reine Tool-Call-Chunks / usage → unverändert durch
+                yield chunk
+
+        # Stream-Ende: zurückgehaltenen Resttext (falls vorhanden) nachschieben
+        tail = think_filter.flush()
+        if tail:
+            yield tail
 
 
     def _on_conversation_item(self, event) -> None:
@@ -367,7 +491,7 @@ async def entrypoint(ctx: JobContext):
     # Gemini API: nur GOOGLE_API_KEY in .env (kein Vertex-Flag nötig)
     session = AgentSession(
         stt=google.STT(languages="de-DE"),          # ✅ Google Cloud Speech-to-Text
-        llm=google.LLM(model="gemini-2.5-flash"),   # ✅ Vertex AI / Gemini
+        llm=setup_llm(),                            # ✅ .env-Switch: Google ⇄ LM Studio
         tts=google.TTS(                             # ✅ Google Cloud Text-to-Speech
             language="de-DE",
             # Primär: Chirp 3 HD (erforderlich für Streaming-Synthese)
