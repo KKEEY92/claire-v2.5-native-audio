@@ -219,14 +219,12 @@ export function useLiveKit({ serverUrl, sessionActive }: UseLiveKitOptions) {
 
       setConnectionState('connecting');
 
-      // iceTransportPolicy: 'relay' zwingt das Audio-Medium über LiveKits
-      // TURN-Relay (TCP/TLS 443) statt direktem UDP. Workaround für macOS 27 Beta,
-      // wo der UDP/WebRTC-Pfad nach ~15-20s abreißt (ICE-Timeout → Disconnect-Loop)
-      // und kein Remote-Audio fließt (man hört Claire nicht, nur das eigene Echo).
+      // Standard-ICE (direkt + Relay-Fallback). Universell für normale Geräte.
+      // Hinweis: macOS 27 Beta verbiegt den Browser-WebRTC-UDP-Pfad — dort fließt
+      // kein Audio-Medium. Auf stabilen Geräten (Handy/anderer Rechner) klappt es.
       const room = new Room({
         adaptiveStream: true,
         dynacast: true,
-        rtcConfig: { iceTransportPolicy: 'relay' },
       });
       session.room = room;
       roomRef.current = room;
