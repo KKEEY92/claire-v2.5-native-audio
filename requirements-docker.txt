@@ -1,0 +1,15 @@
+# Claire V2 – Container-Dependencies (Linux / Python 3.12+)
+# Erweitert requirements.txt um Dinge, die auf dem Mac (Python 3.15.0a1) NICHT
+# installierbar sind (onnxruntime/Silero) bzw. nur der Container braucht (Token-Server).
+# Install im Image: pip install -r requirements-docker.txt
+
+-r requirements.txt
+
+# ── Token-Server (Flask) ──────────────────────────────────────────────────────
+flask>=3.0
+flask-cors>=4.0
+livekit-api>=0.8
+
+# ── Silero VAD (echte Turn-Detection) — nur Linux, braucht onnxruntime ────────
+livekit-plugins-silero>=1.1
+onnxruntime>=1.18

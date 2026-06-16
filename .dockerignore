@@ -1,0 +1,33 @@
+# Python
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# Secrets — niemals ins Image; zur Laufzeit gemountet/als env_file
+.env
+*.bak
+*credentials*.json
+*secret*.json
+service_account.json
+
+# Frontend (läuft nativ auf dem Mac, nicht im Container)
+node_modules/
+dist/
+build/
+src/
+index.html
+package.json
+package-lock.json
+vite.config.ts
+tsconfig*.json
+
+# Repo-Ballast
+.git/
+.gitignore
+_archive/
+*.log
+*.md
+.claude/
+.DS_Store
