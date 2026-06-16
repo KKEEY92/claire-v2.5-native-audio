@@ -52,6 +52,9 @@ circadian rhythm simulation, and professional-grade audio intelligence.*
 
 | Area | Change |
 |---|---|
+| **Containerization** | `Dockerfile` + `docker-compose.yml` run agent + token-server on Linux/Python 3.12 (stable `multiprocessing` PROCESS executor **+ Silero VAD**). LM Studio & browser stay native on the Mac. See [DOCKER.md](DOCKER.md) |
+| **Job executor switch** | `LIVEKIT_JOB_EXECUTOR` (`process`\|`thread`). On **macOS 27 Beta + Python 3.15.0a1** the PROCESS-executor multiprocessing-IPC health-check kills the job at 60s → use `thread`; in the Linux container use `process` |
+| **Live Monitor** | New 🖥️ LIVE tab: live metadata (energy gauge + sparkline, mood, facts, turns, session, LLM/VAD badges), live transcript, and a terminal feed with **EVENTS** (data channel) ⇄ **RAW STDOUT** (`log_server.py` SSE `/logs`). Works over the data channel even when the macOS-Beta audio media path fails |
 | **Local LLM** | `.env`-driven `LLM_PROVIDER` switch — `google` (Gemini 2.5 Flash, Cloud) ⇄ `lmstudio` (local, OpenAI-compatible). STT/TTS stay on Google Cloud either way. See [Local LLM (LM Studio)](#-local-llm-lm-studio) |
 | **Reasoning filter** | Deterministic `<think>…</think>` stream filter in `llm_node` — strips reasoning tokens before TTS (handles tags split across chunks); tool-call chunks pass through untouched so memory stays intact |
 | **Voice latency** | `tts_node` now streams sentence-by-sentence (text fed as it arrives, frames out in parallel) instead of buffering the full reply — large TTFT cut |
