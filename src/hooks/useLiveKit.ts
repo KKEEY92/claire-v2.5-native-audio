@@ -17,6 +17,10 @@ const session = {
 let audioContext: AudioContext | null = null;
 let agentAnalyser: AnalyserNode | null = null;
 let agentMediaSource: MediaElementAudioSourceNode | null = null;
+// createMediaElementSource darf pro <audio>-Element nur EINMAL aufgerufen werden.
+// Ein zweiter Aufruf (React Re-Render / Reconnect) wirft InvalidStateError und
+// kann Claire stumm schalten. Wir merken uns verkabelte Elemente.
+const wiredAudioElements = new WeakSet<HTMLMediaElement>();
 
 function getAudioContext(): AudioContext {
   if (!audioContext) {
@@ -29,6 +33,11 @@ function getAudioContext(): AudioContext {
 }
 
 function setupAgentAudioAnalyser(audioElement: HTMLMediaElement): void {
+  // Schon verkabelt? Dann NICHT erneut createMediaElementSource aufrufen
+  // (würde InvalidStateError werfen). Element spielt bereits über den Graphen.
+  if (wiredAudioElements.has(audioElement)) {
+    return;
+  }
   const ctx = getAudioContext();
   try {
     if (agentMediaSource) {
@@ -44,12 +53,16 @@ function setupAgentAudioAnalyser(audioElement: HTMLMediaElement): void {
     const analyser = ctx.createAnalyser();
     analyser.fftSize = 256;
     source.connect(analyser);
-    analyser.connect(ctx.destination);
+    analyser.connect(ctx.destination); // ohne dies wäre Claire STUMM (Element läuft nur noch über den Graphen)
 
+    wiredAudioElements.add(audioElement);
     agentMediaSource = source;
     agentAnalyser = analyser;
   } catch (err) {
-    console.error('[useLiveKit] Audio analyser setup failed:', err);
+    // Fallback: Element NICHT durch den Graphen routen → es spielt über den
+    // Default-Audio-Output (autoplay), damit Claire auf jeden Fall hörbar bleibt.
+    // Nur die Visualizer-Daten fehlen dann.
+    console.error('[useLiveKit] Audio analyser setup failed (Stimme bleibt via Default-Output):', err);
   }
 }
 

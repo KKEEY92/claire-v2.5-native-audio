@@ -43,7 +43,21 @@ from livekit.agents import (
     ModelSettings,
 )
 from livekit import rtc
-from livekit.plugins import google  # ✅ Nur Google – kein Deepgram, ElevenLabs, Silero
+from livekit.plugins import google  # ✅ Google STT/TTS + Cloud-LLM
+# openai-Plugin (LM Studio) am MODUL-TOP importieren → Registrierung im Main-Thread.
+# Bei THREAD-Executor (Python-3.15a1-Workaround) scheitert ein Lazy-Import im Job-Thread
+# an "Plugins must be registered on the main thread".
+try:
+    from livekit.plugins import openai as _lk_openai
+except ImportError:
+    _lk_openai = None
+# Silero VAD — nur im Linux-Container verfügbar (braucht onnxruntime, das es auf
+# Python 3.15a1/Mac nicht gibt). Optional: vorhanden → echte Turn-Detection,
+# nicht vorhanden → None (STT-Endpointing wie bisher).
+try:
+    from livekit.plugins import silero as _lk_silero
+except ImportError:
+    _lk_silero = None
 
 from persona import (
     CLAIRE_PERSONA_OS,
@@ -157,17 +171,15 @@ def setup_llm():
     provider = os.getenv("LLM_PROVIDER", "google").lower()
 
     if provider == "lmstudio":
-        try:
-            from livekit.plugins import openai
-        except ImportError as e:
+        if _lk_openai is None:
             raise RuntimeError(
                 "LLM_PROVIDER=lmstudio braucht das openai-Plugin:\n"
                 "  .venv/bin/pip install livekit-plugins-openai"
-            ) from e
+            )
         model = os.getenv("LMSTUDIO_MODEL", "qwen2.5-7b-instruct")
         base_url = os.getenv("LMSTUDIO_URL", "http://localhost:1234/v1")
         print(f"🤖 [LLM] LOKAL via LM Studio — {model} @ {base_url}", flush=True)
-        return openai.LLM(base_url=base_url, api_key="lm-studio", model=model)
+        return _lk_openai.LLM(base_url=base_url, api_key="lm-studio", model=model)
 
     print("☁️  [LLM] CLOUD via Google Gemini 2.5 Flash", flush=True)
     return google.LLM(model="gemini-2.5-flash")
@@ -550,10 +562,14 @@ async def entrypoint(ctx: JobContext):
     )
 
     # ② Voice Pipeline ──────────────────────────────────────────────────────────
-    # ✅ RAM-Fix: 100% Google Cloud – kein lokales Modell, kein PyTorch, kein Swap
-    # Vertex AI: GOOGLE_GENAI_USE_VERTEXAI=1 + GOOGLE_CLOUD_PROJECT in .env setzen
-    # Gemini API: nur GOOGLE_API_KEY in .env (kein Vertex-Flag nötig)
+    # STT/TTS immer Google Cloud; LLM via .env-Switch (Google ⇄ LM Studio).
+    # VAD: aus prewarm (Silero, nur im Linux-Container vorhanden). vad=None auf dem
+    # Mac → LiveKit nutzt STT-Endpointing (unverändertes Mac-Verhalten).
+    vad = ctx.proc.userdata.get("vad") if hasattr(ctx, "proc") else None
+    if vad is not None:
+        print("[Claire] VAD: Silero aktiv (echte Turn-Detection)", flush=True)
     session = AgentSession(
+        vad=vad,                                    # Silero (Container) oder None (Mac)
         stt=google.STT(languages="de-DE"),          # ✅ Google Cloud Speech-to-Text
         llm=setup_llm(),                            # ✅ .env-Switch: Google ⇄ LM Studio
         tts=google.TTS(                             # ✅ Google Cloud Text-to-Speech
@@ -561,7 +577,6 @@ async def entrypoint(ctx: JobContext):
             # Primär: Chirp 3 HD (erforderlich für Streaming-Synthese)
             voice_name="de-DE-Chirp3-HD-Aoede",
         ),
-        # ✅ Kein silero.VAD mehr – LiveKit übernimmt Turn-Detection automatisch
     )
 
     @session.on("error")
@@ -729,7 +744,39 @@ async def _post_call(session: AgentSession, agent: ClaireAgent):
         print(f"[Post-Call] Fehler: {e}")
 
 
+# ── PREWARM ────────────────────────────────────────────────────────────────────
+
+def prewarm(proc):
+    """
+    Wird einmal pro Job-Prozess vor dem ersten Job ausgeführt.
+    Lädt Silero VAD (falls verfügbar) als Singleton → keine erneute Ladezeit pro Job.
+    Auf dem Mac (kein onnxruntime) ist _lk_silero None → kein VAD, kein Fehler.
+    """
+    if _lk_silero is not None:
+        try:
+            proc.userdata["vad"] = _lk_silero.VAD.load()
+            print("[prewarm] Silero VAD geladen", flush=True)
+        except Exception as e:
+            print(f"[prewarm] Silero VAD nicht geladen: {e}", flush=True)
+
+
 # ── MAIN ──────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    cli.run_app(WorkerOptions(entrypoint_fnc=entrypoint))
+    # Executor env-gesteuert:
+    #   • PROCESS (Default) → Linux/Container, deterministischer multiprocessing-IPC.
+    #   • THREAD            → macOS 27 Beta + Python 3.15.0a1, wo der PROCESS-IPC-
+    #     Healthcheck den Job nach 60s als "unresponsive" killt. Setze dafür
+    #     LIVEKIT_JOB_EXECUTOR=thread in der .env.
+    from livekit.agents.worker import JobExecutorType
+    _executor = (
+        JobExecutorType.THREAD
+        if os.getenv("LIVEKIT_JOB_EXECUTOR", "process").lower() == "thread"
+        else JobExecutorType.PROCESS
+    )
+    print(f"[Worker] Job-Executor: {_executor.value}", flush=True)
+    cli.run_app(WorkerOptions(
+        entrypoint_fnc=entrypoint,
+        prewarm_fnc=prewarm,
+        job_executor_type=_executor,
+    ))
