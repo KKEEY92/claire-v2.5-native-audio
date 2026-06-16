@@ -296,19 +296,30 @@ export function useLiveKit({ serverUrl, sessionActive }: UseLiveKitOptions) {
       room.on(RoomEvent.DataReceived, (data: Uint8Array) => {
         try {
           const payload = JSON.parse(new TextDecoder().decode(data));
+          const store = useEmotionStore.getState();
           if (payload.type === 'telemetry') {
-            const store = useEmotionStore.getState();
             store.setEnergy(payload.energy ?? INITIAL_ENERGY);
             store.setMoodTag(payload.moodTag ?? null);
-            if (typeof payload.factsCount === 'number') {
-              store.setFacts(payload.factsCount);
-            }
-            if (typeof payload.turnCount === 'number') {
-              store.setTurnCount(payload.turnCount);
-            }
-            if (typeof payload.sessionSeconds === 'number') {
-              store.setSessionSeconds(payload.sessionSeconds);
-            }
+            if (typeof payload.factsCount === 'number') store.setFacts(payload.factsCount);
+            if (typeof payload.turnCount === 'number') store.setTurnCount(payload.turnCount);
+            if (typeof payload.sessionSeconds === 'number') store.setSessionSeconds(payload.sessionSeconds);
+            store.setRuntimeInfo({
+              llmProvider: typeof payload.llmProvider === 'string' ? payload.llmProvider : undefined,
+              vadActive: typeof payload.vadActive === 'boolean' ? payload.vadActive : undefined,
+            });
+          } else if (payload.type === 'event') {
+            store.pushEvent({
+              ts: payload.ts ?? Date.now() / 1000,
+              level: payload.level ?? 'info',
+              source: payload.source ?? 'system',
+              text: payload.text ?? '',
+            });
+          } else if (payload.type === 'transcript') {
+            store.pushTranscript({
+              ts: payload.ts ?? Date.now() / 1000,
+              role: payload.role ?? 'assistant',
+              text: payload.text ?? '',
+            });
           }
         } catch {
           /* ignore non-JSON */

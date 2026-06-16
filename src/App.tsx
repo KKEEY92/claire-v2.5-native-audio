@@ -3,6 +3,7 @@ import { MoodGlow } from './components/Dashboard/MoodGlow';
 import { PhoneCallScreen } from './components/PhoneCall/PhoneCallScreen';
 import { AuraToneView } from './components/AuraTone/AuraToneView';
 import { AnalyticsView } from './components/Analytics/AnalyticsView';
+import { LiveMonitorView } from './components/Monitor/LiveMonitorView';
 import { useLiveKit } from './hooks/useLiveKit';
 import { useEmotionStore } from './stores/emotionStore';
 import type { AppView } from './types';
@@ -35,7 +36,7 @@ export default function App() {
     <div className="relative w-screen h-dvh overflow-hidden bg-[#08080f]">
       <MoodGlow />
       <nav className="absolute top-4 left-1/2 -translate-x-1/2 z-50 glass rounded-full px-4 py-2 flex gap-6">
-        {(['call', 'auratone', 'analytics'] as AppView[]).map((v) => (
+        {(['call', 'auratone', 'analytics', 'monitor'] as AppView[]).map((v) => (
           <button
             key={v}
             type="button"
@@ -43,7 +44,7 @@ export default function App() {
             className="text-xs font-mono tracking-widest uppercase cursor-pointer transition-colors"
             style={{ color: view === v ? 'var(--energy-color)' : '#64748b' }}
           >
-            {v === 'call' ? '📞 CALL' : v === 'auratone' ? '🎛️ AURA' : '📊 DATA'}
+            {v === 'call' ? '📞 CALL' : v === 'auratone' ? '🎛️ AURA' : v === 'analytics' ? '📊 DATA' : '🖥️ LIVE'}
           </button>
         ))}
       </nav>
@@ -53,6 +54,7 @@ export default function App() {
         )}
         {view === 'auratone' && <AuraToneView />}
         {view === 'analytics' && <AnalyticsView />}
+        {view === 'monitor' && <LiveMonitorView />}
       </main>
       {!sessionActive && view === 'call' && (
         <div className="absolute inset-0 z-20 flex items-center justify-center">

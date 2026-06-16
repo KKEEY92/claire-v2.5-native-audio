@@ -21,6 +21,11 @@ export default defineConfig({
       '/token': {
         target: 'http://localhost:3001',
         changeOrigin: true,
+      },
+      // Live-Monitor: roher Container-stdout via SSE (log_server.py auf dem Host)
+      '/logs': {
+        target: 'http://localhost:3002',
+        changeOrigin: true,
       }
     }
   }

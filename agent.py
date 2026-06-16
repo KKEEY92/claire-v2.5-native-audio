@@ -219,31 +219,61 @@ class ClaireAgent(Agent):
         # ✅ FIX: eigene History – session.history existiert in LK Agents 2.x nicht
         self._history: list[dict] = []
         self._session_start = time.time()
+        self._vad_active = False  # vom entrypoint gesetzt (für Live-Monitor)
 
-    async def _send_telemetry(self):
-        """Sendet Energie- und Mood-Daten an das Frontend via LiveKit Data Channel."""
+    async def _publish(self, payload: dict):
+        """Publiziert ein JSON-Payload über den LiveKit-Datenkanal (best-effort, nie blockierend)."""
         try:
             if self.session and self.session._room_io and self.session._room_io._room:
-                payload = {
-                    "type": "telemetry",
-                    "energy": round(self._ego.energy, 3),
-                    "moodTag": EmotionEngine.get_mode_label(self._ego.energy),
-                    "factsCount": len(_memory.load_facts()),
-                    "turnCount": len(self._history) // 2,
-                    "sessionSeconds": int(time.time() - self._session_start),
-                }
-                # Mit Timeout, damit es nie blockiert
                 await asyncio.wait_for(
                     self.session._room_io._room.local_participant.publish_data(
                         json.dumps(payload).encode("utf-8"),
                         reliable=True,
                     ),
-                    timeout=2.0
+                    timeout=2.0,
                 )
         except asyncio.TimeoutError:
-            print("[Telemetry] Timeout beim Senden", flush=True)
+            print("[DataChannel] Timeout beim Senden", flush=True)
         except Exception as e:
-            print(f"[Telemetry] Fehler: {e}", flush=True)
+            print(f"[DataChannel] Fehler: {e}", flush=True)
+
+    async def _send_telemetry(self):
+        """Sendet Energie-, Mood- und Laufzeit-Metadaten ans Frontend (Live-Monitor)."""
+        await self._publish({
+            "type": "telemetry",
+            "energy": round(self._ego.energy, 3),
+            "moodTag": EmotionEngine.get_mode_label(self._ego.energy),
+            "factsCount": len(_memory.load_facts()),
+            "turnCount": len(self._history) // 2,
+            "sessionSeconds": int(time.time() - self._session_start),
+            "llmProvider": os.getenv("LLM_PROVIDER", "google").lower(),
+            "vadActive": self._vad_active,
+        })
+
+    def _emit_event(self, level: str, source: str, text: str):
+        """Feuert ein strukturiertes Live-Event in den Monitor (Terminal-Feed). Fire-and-forget."""
+        try:
+            asyncio.create_task(self._publish({
+                "type": "event",
+                "ts": time.time(),
+                "level": level,        # info | tool | energy | warn | error
+                "source": source,      # greeting | stt | llm | tts | memory | aura | system
+                "text": text,
+            }))
+        except Exception:
+            pass
+
+    def _emit_transcript(self, role: str, text: str):
+        """Schickt eine Transkript-Zeile (Du/Claire) an den Live-Monitor. Fire-and-forget."""
+        try:
+            asyncio.create_task(self._publish({
+                "type": "transcript",
+                "ts": time.time(),
+                "role": role,          # "user" | "assistant"
+                "text": text,
+            }))
+        except Exception:
+            pass
 
 
     async def on_enter(self) -> None:
@@ -267,6 +297,7 @@ class ClaireAgent(Agent):
     async def _do_greeting(self) -> None:
         """Greeting-Reply als separater Task — entkoppelt vom Worker-Heartbeat."""
         try:
+            self._emit_event("info", "greeting", "Claire betritt den Raum — Begrüßung wird generiert…")
             await self.session.generate_reply(
                 instructions=(
                     "Starte mit einem konkreten, körperlichen Situationsanker — "
@@ -276,8 +307,10 @@ class ClaireAgent(Agent):
                 )
             )
             print("[Claire] Greeting reply sent", flush=True)
+            self._emit_event("info", "greeting", "Begrüßung gesprochen.")
         except Exception as e:
             print(f"[Claire] ERROR in _do_greeting: {e}", flush=True)
+            self._emit_event("error", "greeting", f"Greeting fehlgeschlagen: {e}")
 
 
     # ── FEEDBACK-LOOP: Layer 3 frisch pro Turn injizieren ────────────────────
@@ -317,6 +350,7 @@ class ClaireAgent(Agent):
                 hits = await asyncio.to_thread(_memory.semantic_search, last_user, 3)
                 if hits:
                     recalled = "\n".join(f"• [{h.category}] {h.content}" for h in hits)
+                    self._emit_event("info", "memory", f"Proaktiver Recall: {len(hits)} Fakt(en) injiziert")
                     chat_ctx.add_message(
                         role="system",
                         content=(
@@ -390,11 +424,21 @@ class ClaireAgent(Agent):
                 label = "Kev" if role == "user" else "Claire"
                 self._history.append({"role": label, "content": content.strip()})
 
+                # Live-Transkript an den Monitor
+                self._emit_transcript(role, content.strip())
+
                 # Energie-Update auf jeden User-Turn
                 if role == "user":
+                    before = self._ego.energy
                     self._ego.energy = EmotionEngine.calculate_shift(
                         content, self._ego.energy
                     )
+                    delta = self._ego.energy - before
+                    if abs(delta) >= 0.001:
+                        self._emit_event(
+                            "energy", "llm",
+                            f"Energie {before:.2f} → {self._ego.energy:.2f} ({delta:+.3f})",
+                        )
                     # Telemetry an Frontend pushen
                     asyncio.create_task(self._send_telemetry())
         except Exception as e:
@@ -474,6 +518,7 @@ class ClaireAgent(Agent):
         Speichert einen wichtigen Fakt über Kev persistent in der Memory.
         Immer aufrufen wenn du etwas Neues oder Relevantes erfährst.
         """
+        self._emit_event("tool", "memory", f"save_memory[{category}]: {content[:80]}")
         # upsert_fact macht Drive-I/O + synchrone Vertex-Embedding-Berechnung
         # → in einen Thread auslagern, damit der Audio-Event-Loop nicht blockiert.
         result = await asyncio.to_thread(_memory.upsert_fact, category, content)
@@ -482,6 +527,7 @@ class ClaireAgent(Agent):
         self._ego.energy = EmotionEngine.calculate_memory_shift(
             category, content, self._ego.energy
         )
+        asyncio.create_task(self._send_telemetry())
         return result
 
     @function_tool
@@ -494,6 +540,7 @@ class ClaireAgent(Agent):
         Nutze das wenn du dir bei etwas nicht sicher bist oder etwas nachschlagen willst.
         Gibt die relevantesten Einträge zurück — nach semantischer Ähnlichkeit, nicht Keyword.
         """
+        self._emit_event("tool", "memory", f"recall_memory: „{query[:60]}“")
         # semantic_search berechnet ein Query-Embedding (synchroner Vertex-Call)
         # → Thread-Offload gegen Event-Loop-Blockade.
         hits = await asyncio.to_thread(_memory.semantic_search, query, 6)
@@ -513,6 +560,7 @@ class ClaireAgent(Agent):
         (-12 LUFS Ziel, Hochpass 30Hz, Artefakt-Entfernung).
         Nur aufrufen wenn Kev explizit nach Audio-Bearbeitung fragt.
         """
+        self._emit_event("tool", "aura", f"aura_master_track: {track_path} [{mode}]")
         lufs = round(random.uniform(-13.5, -11.0), 1)
         return (
             f"AuraMaster '{track_path}' fertig → {lufs} LUFS, "
@@ -530,6 +578,7 @@ class ClaireAgent(Agent):
         Export als .nml für Traktor Pro 4.
         Nur aufrufen wenn Kev explizit nach Playlist oder Set fragt.
         """
+        self._emit_event("tool", "aura", f"create_camelot_playlist: ab {seed_key}, {length} Tracks")
         return (
             f"Playlist ab {seed_key}: {length} Tracks, "
             f"harmonischer Fluss (±1 Camelot-Schritt). Als .nml für Traktor exportiert."
@@ -579,11 +628,13 @@ async def entrypoint(ctx: JobContext):
         ),
     )
 
+    agent = ClaireAgent(instructions=prompt, ego=ego)
+    agent._vad_active = vad is not None   # für Live-Monitor-Telemetrie
+
     @session.on("error")
     def on_session_error(err):
         print(f"[Claire Session Error] {err}", flush=True)
-
-    agent = ClaireAgent(instructions=prompt, ego=ego)
+        agent._emit_event("error", "system", f"Session-Fehler: {str(err)[:120]}")
 
     # ③ Session starten ────────────────────────────────────────────────────────
     await session.start(room=ctx.room, agent=agent)

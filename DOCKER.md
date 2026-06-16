@@ -51,9 +51,33 @@ npm run dev          # http://localhost:5173 → "Anrufen"
 - Greeting: `[TTS Node] Started` → `[Claire] Greeting reply sent`, **kein**
   `process is unresponsive`.
 
+## Live-Monitor (🖥️ LIVE-Tab)
+
+Sieh Claire live arbeiten — erweiterte Metadaten + Claire-Livefeed/Terminal-Log.
+Läuft über den **LiveKit-Datenkanal**, der auf macOS 27 Beta funktioniert → der
+Monitor zeigt Claire **auch dann**, wenn das Audio-Medium gerade hakt.
+
+```bash
+# Zusätzlich zum Stack: roher Container-stdout als SSE auf dem HOST (Port 3002).
+# Braucht die Docker-CLI im PATH (Homebrew):
+PATH="/opt/homebrew/bin:$PATH" .venv/bin/python log_server.py
+# Lokaler Mac-Modus statt Container:  LOG_SOURCE=file LOG_FILE=/tmp/claire_local.log .venv/bin/python log_server.py
+```
+
+Im Browser → Tab **🖥️ LIVE**:
+- **Metadaten-Header:** Energie-Gauge + Sparkline, Mood, Facts, Turns, Session-Zeit,
+  LLM-Provider (lokal/Cloud), VAD-Status — live über die Telemetrie.
+- **Transkript:** Du + Claire (best-effort über conversation-items).
+- **Terminal-Panel:** Umschalter **EVENTS** (Datenkanal: Greeting, Tool-Calls,
+  Memory-Recall, Energie-Shifts, Fehler) ⇄ **RAW STDOUT** (`/logs` → log_server).
+
+Hinweis: Wiederkehrende `STT Audio Timeout`-Events im Feed bedeuten „kein Mikro-Audio
+erreicht STT" — auf macOS 27 Beta der Beleg fürs Browser-Audio-Problem.
+
 ## Stop
 ```bash
 docker compose down
+pkill -f log_server.py
 ```
 
 ## Bekannte Punkte
