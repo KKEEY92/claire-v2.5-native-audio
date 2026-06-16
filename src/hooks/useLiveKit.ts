@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { Room, RoomEvent, Track } from 'livekit-client';
+import { Room, RoomEvent, Track, type RemoteTrack } from 'livekit-client';
 import { useEmotionStore } from '../stores/emotionStore';
 
 const TOKEN_ENDPOINT =
@@ -16,11 +16,7 @@ const session = {
 
 let audioContext: AudioContext | null = null;
 let agentAnalyser: AnalyserNode | null = null;
-let agentMediaSource: MediaElementAudioSourceNode | null = null;
-// createMediaElementSource darf pro <audio>-Element nur EINMAL aufgerufen werden.
-// Ein zweiter Aufruf (React Re-Render / Reconnect) wirft InvalidStateError und
-// kann Claire stumm schalten. Wir merken uns verkabelte Elemente.
-const wiredAudioElements = new WeakSet<HTMLMediaElement>();
+let agentMediaSource: MediaStreamAudioSourceNode | null = null;
 
 function getAudioContext(): AudioContext {
   if (!audioContext) {
@@ -32,12 +28,17 @@ function getAudioContext(): AudioContext {
   return audioContext;
 }
 
-function setupAgentAudioAnalyser(audioElement: HTMLMediaElement): void {
-  // Schon verkabelt? Dann NICHT erneut createMediaElementSource aufrufen
-  // (würde InvalidStateError werfen). Element spielt bereits über den Graphen.
-  if (wiredAudioElements.has(audioElement)) {
-    return;
-  }
+/**
+ * Visualizer-Analyser für Claires Remote-Audio.
+ *
+ * WICHTIG: Claires Stimme wird vom <audio>-Element (track.attach()) NATIV
+ * abgespielt — wir fassen das Element NICHT an. createMediaElementSource ist für
+ * Remote-WebRTC-Streams in Chrome kaputt (kapert das Element → kein Ton UND keine
+ * Analyser-Daten). Stattdessen analysieren wir den Track direkt über
+ * createMediaStreamSource (das funktioniert für WebRTC-Audio) und verbinden den
+ * Analyser NICHT mit destination (sonst doppelte Wiedergabe).
+ */
+function setupAgentAudioAnalyser(track: RemoteTrack): void {
   const ctx = getAudioContext();
   try {
     if (agentMediaSource) {
@@ -49,20 +50,18 @@ function setupAgentAudioAnalyser(audioElement: HTMLMediaElement): void {
       agentAnalyser = null;
     }
 
-    const source = ctx.createMediaElementSource(audioElement);
+    const stream = new MediaStream([track.mediaStreamTrack]);
+    const source = ctx.createMediaStreamSource(stream);
     const analyser = ctx.createAnalyser();
     analyser.fftSize = 256;
     source.connect(analyser);
-    analyser.connect(ctx.destination); // ohne dies wäre Claire STUMM (Element läuft nur noch über den Graphen)
+    // KEIN analyser.connect(destination): die Stimme läuft über das <audio>-Element.
 
-    wiredAudioElements.add(audioElement);
     agentMediaSource = source;
     agentAnalyser = analyser;
   } catch (err) {
-    // Fallback: Element NICHT durch den Graphen routen → es spielt über den
-    // Default-Audio-Output (autoplay), damit Claire auf jeden Fall hörbar bleibt.
-    // Nur die Visualizer-Daten fehlen dann.
-    console.error('[useLiveKit] Audio analyser setup failed (Stimme bleibt via Default-Output):', err);
+    // Visualizer ist optional — Claires Stimme spielt unabhängig davon nativ.
+    console.error('[useLiveKit] Visualizer-Analyser fehlgeschlagen (Stimme unberührt):', err);
   }
 }
 
@@ -220,7 +219,15 @@ export function useLiveKit({ serverUrl, sessionActive }: UseLiveKitOptions) {
 
       setConnectionState('connecting');
 
-      const room = new Room({ adaptiveStream: true, dynacast: true });
+      // iceTransportPolicy: 'relay' zwingt das Audio-Medium über LiveKits
+      // TURN-Relay (TCP/TLS 443) statt direktem UDP. Workaround für macOS 27 Beta,
+      // wo der UDP/WebRTC-Pfad nach ~15-20s abreißt (ICE-Timeout → Disconnect-Loop)
+      // und kein Remote-Audio fließt (man hört Claire nicht, nur das eigene Echo).
+      const room = new Room({
+        adaptiveStream: true,
+        dynacast: true,
+        rtcConfig: { iceTransportPolicy: 'relay' },
+      });
       session.room = room;
       roomRef.current = room;
 
@@ -252,13 +259,15 @@ export function useLiveKit({ serverUrl, sessionActive }: UseLiveKitOptions) {
 
       room.on(RoomEvent.TrackSubscribed, (track) => {
         if (track.kind === Track.Kind.Audio) {
+          // <audio>-Element spielt Claires Stimme NATIV ab (zuverlässig).
           const audioEl = track.attach();
           audioEl.autoplay = true;
           audioEl.playsInline = true;
           audioEl.style.display = 'none';
           document.body.appendChild(audioEl);
           session.audioElements.push(audioEl);
-          setupAgentAudioAnalyser(audioEl);
+          // Visualizer separat aus dem Track (nicht aus dem Element).
+          setupAgentAudioAnalyser(track as RemoteTrack);
         }
       });
 
