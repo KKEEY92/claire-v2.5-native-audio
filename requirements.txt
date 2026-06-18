@@ -12,8 +12,10 @@ google-auth-httplib2>=0.4
 google-auth-oauthlib>=1.0
 
 # ── LiveKit Voice Pipeline ────────────────────────────────────────────────────
-# Only Google stack — Deepgram/ElevenLabs/Silero removed for RAM optimization
+# Google stack für STT/TTS + Cloud-LLM; Deepgram/ElevenLabs/Silero entfernt (RAM)
 livekit-agents[google]>=0.12
+# Optional: lokales LLM via LM Studio (LLM_PROVIDER=lmstudio) — OpenAI-kompatibel
+livekit-plugins-openai>=1.1
 
 # ── Utilities ─────────────────────────────────────────────────────────────────
 python-dotenv>=1.0

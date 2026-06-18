@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { Room, RoomEvent, Track } from 'livekit-client';
+import { Room, RoomEvent, Track, type RemoteTrack } from 'livekit-client';
 import { useEmotionStore } from '../stores/emotionStore';
 
 const TOKEN_ENDPOINT =
@@ -16,7 +16,7 @@ const session = {
 
 let audioContext: AudioContext | null = null;
 let agentAnalyser: AnalyserNode | null = null;
-let agentMediaSource: MediaElementAudioSourceNode | null = null;
+let agentMediaSource: MediaStreamAudioSourceNode | null = null;
 
 function getAudioContext(): AudioContext {
   if (!audioContext) {
@@ -28,7 +28,17 @@ function getAudioContext(): AudioContext {
   return audioContext;
 }
 
-function setupAgentAudioAnalyser(audioElement: HTMLMediaElement): void {
+/**
+ * Visualizer-Analyser für Claires Remote-Audio.
+ *
+ * WICHTIG: Claires Stimme wird vom <audio>-Element (track.attach()) NATIV
+ * abgespielt — wir fassen das Element NICHT an. createMediaElementSource ist für
+ * Remote-WebRTC-Streams in Chrome kaputt (kapert das Element → kein Ton UND keine
+ * Analyser-Daten). Stattdessen analysieren wir den Track direkt über
+ * createMediaStreamSource (das funktioniert für WebRTC-Audio) und verbinden den
+ * Analyser NICHT mit destination (sonst doppelte Wiedergabe).
+ */
+function setupAgentAudioAnalyser(track: RemoteTrack): void {
   const ctx = getAudioContext();
   try {
     if (agentMediaSource) {
@@ -40,16 +50,18 @@ function setupAgentAudioAnalyser(audioElement: HTMLMediaElement): void {
       agentAnalyser = null;
     }
 
-    const source = ctx.createMediaElementSource(audioElement);
+    const stream = new MediaStream([track.mediaStreamTrack]);
+    const source = ctx.createMediaStreamSource(stream);
     const analyser = ctx.createAnalyser();
     analyser.fftSize = 256;
     source.connect(analyser);
-    analyser.connect(ctx.destination);
+    // KEIN analyser.connect(destination): die Stimme läuft über das <audio>-Element.
 
     agentMediaSource = source;
     agentAnalyser = analyser;
   } catch (err) {
-    console.error('[useLiveKit] Audio analyser setup failed:', err);
+    // Visualizer ist optional — Claires Stimme spielt unabhängig davon nativ.
+    console.error('[useLiveKit] Visualizer-Analyser fehlgeschlagen (Stimme unberührt):', err);
   }
 }
 
@@ -207,7 +219,13 @@ export function useLiveKit({ serverUrl, sessionActive }: UseLiveKitOptions) {
 
       setConnectionState('connecting');
 
-      const room = new Room({ adaptiveStream: true, dynacast: true });
+      // Standard-ICE (direkt + Relay-Fallback). Universell für normale Geräte.
+      // Hinweis: macOS 27 Beta verbiegt den Browser-WebRTC-UDP-Pfad — dort fließt
+      // kein Audio-Medium. Auf stabilen Geräten (Handy/anderer Rechner) klappt es.
+      const room = new Room({
+        adaptiveStream: true,
+        dynacast: true,
+      });
       session.room = room;
       roomRef.current = room;
 
@@ -239,13 +257,15 @@ export function useLiveKit({ serverUrl, sessionActive }: UseLiveKitOptions) {
 
       room.on(RoomEvent.TrackSubscribed, (track) => {
         if (track.kind === Track.Kind.Audio) {
+          // <audio>-Element spielt Claires Stimme NATIV ab (zuverlässig).
           const audioEl = track.attach();
           audioEl.autoplay = true;
           audioEl.playsInline = true;
           audioEl.style.display = 'none';
           document.body.appendChild(audioEl);
           session.audioElements.push(audioEl);
-          setupAgentAudioAnalyser(audioEl);
+          // Visualizer separat aus dem Track (nicht aus dem Element).
+          setupAgentAudioAnalyser(track as RemoteTrack);
         }
       });
 
@@ -276,19 +296,30 @@ export function useLiveKit({ serverUrl, sessionActive }: UseLiveKitOptions) {
       room.on(RoomEvent.DataReceived, (data: Uint8Array) => {
         try {
           const payload = JSON.parse(new TextDecoder().decode(data));
+          const store = useEmotionStore.getState();
           if (payload.type === 'telemetry') {
-            const store = useEmotionStore.getState();
             store.setEnergy(payload.energy ?? INITIAL_ENERGY);
             store.setMoodTag(payload.moodTag ?? null);
-            if (typeof payload.factsCount === 'number') {
-              store.setFacts(payload.factsCount);
-            }
-            if (typeof payload.turnCount === 'number') {
-              store.setTurnCount(payload.turnCount);
-            }
-            if (typeof payload.sessionSeconds === 'number') {
-              store.setSessionSeconds(payload.sessionSeconds);
-            }
+            if (typeof payload.factsCount === 'number') store.setFacts(payload.factsCount);
+            if (typeof payload.turnCount === 'number') store.setTurnCount(payload.turnCount);
+            if (typeof payload.sessionSeconds === 'number') store.setSessionSeconds(payload.sessionSeconds);
+            store.setRuntimeInfo({
+              llmProvider: typeof payload.llmProvider === 'string' ? payload.llmProvider : undefined,
+              vadActive: typeof payload.vadActive === 'boolean' ? payload.vadActive : undefined,
+            });
+          } else if (payload.type === 'event') {
+            store.pushEvent({
+              ts: payload.ts ?? Date.now() / 1000,
+              level: payload.level ?? 'info',
+              source: payload.source ?? 'system',
+              text: payload.text ?? '',
+            });
+          } else if (payload.type === 'transcript') {
+            store.pushTranscript({
+              ts: payload.ts ?? Date.now() / 1000,
+              role: payload.role ?? 'assistant',
+              text: payload.text ?? '',
+            });
           }
         } catch {
           /* ignore non-JSON */

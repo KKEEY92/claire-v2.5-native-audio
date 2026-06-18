@@ -1,0 +1,36 @@
+# Claire V2 – Agent + Token-Server im Container.
+# LM Studio (Mac-GPU), Frontend und Browser bleiben nativ auf dem Host.
+# Start:  docker compose up --build
+# Voraussetzung: Docker Desktop, LM Studio laufend (Modell geladen) auf dem Mac,
+#                gültige Google ADC unter ~/.config/gcloud/, ausgefüllte .env.
+
+services:
+  agent:
+    build: .
+    command: python agent.py start
+    env_file: .env
+    environment:
+      # Overrides gewinnen gegen .env:
+      LLM_PROVIDER: lmstudio
+      # LM Studio läuft auf dem Mac-Host, nicht im Container:
+      LMSTUDIO_URL: http://host.docker.internal:1234/v1
+      # Linux: stabiler multiprocessing-IPC → PROCESS (neutralisiert ein evtl.
+      # in .env gesetztes LIVEKIT_JOB_EXECUTOR=thread vom Mac):
+      LIVEKIT_JOB_EXECUTOR: process
+      # Gemountete Google-ADC:
+      GOOGLE_APPLICATION_CREDENTIALS: /creds/adc.json
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      # Google Application Default Credentials read-only einhängen:
+      - ${HOME}/.config/gcloud/application_default_credentials.json:/creds/adc.json:ro
+    restart: unless-stopped
+
+  token-server:
+    build: .
+    command: python token_server.py
+    env_file: .env
+    ports:
+      # Mac-Frontend (Vite) proxyt /token → localhost:3001:
+      - "3001:3001"
+    restart: unless-stopped

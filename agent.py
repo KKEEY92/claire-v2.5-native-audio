@@ -8,9 +8,10 @@ Persona-System: KKI PERSONA OS v1.0 (7-Layer Identity Framework)
 
 Stack:
   • LiveKit Agents 2.x — AgentSession + Agent
-  • Google Cloud STT / Gemini 2.5 Flash / Google TTS (Chirp3-HD)
+  • Google Cloud STT / Google TTS (Chirp3-HD) — immer Cloud
+  • LLM via .env-Switch (LLM_PROVIDER): Gemini 2.5 Flash (Cloud) ⇄ LM Studio (lokal)
   • Vertex AI via GOOGLE_GENAI_USE_VERTEXAI=1
-  • Kein PyTorch, kein Silero, kein lokales Modell
+  • Kein PyTorch, kein Silero (STT/TTS bleiben Cloud; nur das LLM kann lokal laufen)
 """
 # ── MONKEY PATCH FOR GOOGLE-GENAI ENUM SERIALIZATION ─────────────────────────
 from google.genai._common import CaseInSensitiveEnum
@@ -42,7 +43,21 @@ from livekit.agents import (
     ModelSettings,
 )
 from livekit import rtc
-from livekit.plugins import google  # ✅ Nur Google – kein Deepgram, ElevenLabs, Silero
+from livekit.plugins import google  # ✅ Google STT/TTS + Cloud-LLM
+# openai-Plugin (LM Studio) am MODUL-TOP importieren → Registrierung im Main-Thread.
+# Bei THREAD-Executor (Python-3.15a1-Workaround) scheitert ein Lazy-Import im Job-Thread
+# an "Plugins must be registered on the main thread".
+try:
+    from livekit.plugins import openai as _lk_openai
+except ImportError:
+    _lk_openai = None
+# Silero VAD — nur im Linux-Container verfügbar (braucht onnxruntime, das es auf
+# Python 3.15a1/Mac nicht gibt). Optional: vorhanden → echte Turn-Detection,
+# nicht vorhanden → None (STT-Endpointing wie bisher).
+try:
+    from livekit.plugins import silero as _lk_silero
+except ImportError:
+    _lk_silero = None
 
 from persona import (
     CLAIRE_PERSONA_OS,
@@ -52,6 +67,7 @@ from persona import (
     EgoState,
     get_daily_context,
     get_circadian_energy_base,
+    format_time_since,
 )
 from memory import DriveMemory, MemoryContext
 
@@ -61,6 +77,114 @@ from memory import DriveMemory, MemoryContext
 _memory = DriveMemory()
 
 
+# ── <think>-STREAM-FILTER ────────────────────────────────────────────────────
+
+class ThinkTagFilter:
+    """
+    Entfernt <think>...</think>-Blöcke deterministisch aus einem Token-Stream,
+    *bevor* der Text an den TTS-Knoten geht. Reasoning-Modelle (DeepSeek-R1 etc.)
+    emittieren ihren Denkprozess sonst live als Audio.
+
+    Robust über Chunk-Grenzen: Ein Tag, das auf zwei Chunks aufgeteilt ankommt
+    (z.B. '<thi' + 'nk>'), wird korrekt zusammengesetzt — die unvollständige
+    Tag-Hälfte wird zurückgehalten, nicht versehentlich vorgelesen.
+    """
+
+    OPEN = "<think>"
+    CLOSE = "</think>"
+
+    def __init__(self):
+        self.in_think = False
+        self.buffer = ""
+
+    @staticmethod
+    def _partial_tail(buffer: str, tag: str) -> int:
+        """Längstes Suffix von buffer, das ein echtes Präfix von tag ist (für split-Tags)."""
+        for k in range(min(len(tag) - 1, len(buffer)), 0, -1):
+            if buffer.endswith(tag[:k]):
+                return k
+        return 0
+
+    def filter_chunk(self, text: str) -> str:
+        self.buffer += text
+        out = ""
+        while True:
+            if self.in_think:
+                idx = self.buffer.find(self.CLOSE)
+                if idx == -1:
+                    # Komplett im Denkmodus → alles verwerfen,
+                    # nur ein evtl. angefangenes </think> als Tail behalten
+                    keep = self._partial_tail(self.buffer, self.CLOSE)
+                    self.buffer = self.buffer[len(self.buffer) - keep:] if keep else ""
+                    break
+                self.buffer = self.buffer[idx + len(self.CLOSE):]
+                self.in_think = False
+            else:
+                idx = self.buffer.find(self.OPEN)
+                if idx == -1:
+                    keep = self._partial_tail(self.buffer, self.OPEN)
+                    emit_len = len(self.buffer) - keep
+                    out += self.buffer[:emit_len]
+                    self.buffer = self.buffer[emit_len:]
+                    break
+                out += self.buffer[:idx]
+                self.buffer = self.buffer[idx + len(self.OPEN):]
+                self.in_think = True
+        return out
+
+    def flush(self) -> str:
+        """Am Stream-Ende: zurückgehaltenen Rest ausgeben (nur wenn nicht im Denkmodus)."""
+        if self.in_think:
+            return ""
+        out, self.buffer = self.buffer, ""
+        return out
+
+
+# ── PROSODIE: Stimme an Energie koppeln ──────────────────────────────────────
+
+def _prosody_for_energy(energy: float) -> tuple[float, float]:
+    """
+    Mappt ego.energy auf (speaking_rate, volume_gain_db) für Google TTS.
+    Zentriert auf den zirkadianen Default (~0.65) → dort neutral (1.0 / 0 dB).
+    Müde (Dead Battery) klingt langsamer & leiser, Hyper schneller & präsenter.
+    """
+    rate = 1.0 + (energy - 0.65) * 0.35
+    rate = max(0.85, min(1.12, rate))      # konservativer, natürlicher Bereich
+    gain = (energy - 0.65) * 4.0
+    gain = max(-3.0, min(2.0, gain))
+    return round(rate, 3), round(gain, 2)
+
+
+# ── LLM-PROVIDER-SWITCH (.env-gesteuert) ─────────────────────────────────────
+
+def setup_llm():
+    """
+    Wählt das LLM anhand von LLM_PROVIDER:
+      • 'google'   (default) → Cloud-Claire, Gemini 2.5 Flash via Vertex AI
+      • 'lmstudio'           → Lokal-Claire, OpenAI-kompatibler LM-Studio-Endpoint
+
+    WICHTIG (LiveKit Agents 1.x): Tools hängen an der ClaireAgent-Klasse, NICHT
+    am LLM. Deshalb KEIN fnc_ctx-Parameter — den gibt es in 1.x nicht mehr.
+    Für zuverlässiges Tool-Calling (save_memory/recall_memory) ein echtes
+    Instruct-Modell nehmen (z.B. qwen2.5-7b-instruct), kein R1-Reasoning-Distill.
+    """
+    provider = os.getenv("LLM_PROVIDER", "google").lower()
+
+    if provider == "lmstudio":
+        if _lk_openai is None:
+            raise RuntimeError(
+                "LLM_PROVIDER=lmstudio braucht das openai-Plugin:\n"
+                "  .venv/bin/pip install livekit-plugins-openai"
+            )
+        model = os.getenv("LMSTUDIO_MODEL", "qwen2.5-7b-instruct")
+        base_url = os.getenv("LMSTUDIO_URL", "http://localhost:1234/v1")
+        print(f"🤖 [LLM] LOKAL via LM Studio — {model} @ {base_url}", flush=True)
+        return _lk_openai.LLM(base_url=base_url, api_key="lm-studio", model=model)
+
+    print("☁️  [LLM] CLOUD via Google Gemini 2.5 Flash", flush=True)
+    return google.LLM(model="gemini-2.5-flash")
+
+
 # ── PROMPT ASSEMBLER (KKI PERSONA OS v1.0) ───────────────────────────────────
 
 def _build_prompt(ctx: MemoryContext, ego: EgoState, daily: str) -> str:
@@ -68,14 +192,15 @@ def _build_prompt(ctx: MemoryContext, ego: EgoState, daily: str) -> str:
     Assembelt den vollständigen System-Prompt aus 4 Schichten:
       1. CLAIRE_PERSONA_OS — statischer Kern (Layer 0–2, 4, 6)
       2. build_layer3(ego) — dynamischer emotionaler Zustand (Layer 3)
-      3. build_layer5(...)  — dynamischer Situationsanker (Layer 5)
+      3. build_layer5(...)  — dynamischer Situationsanker (Layer 5) + Wiedersehens-Anker
       4. Memory-Kontext     — was Claire über Kev weiß
     """
     now = datetime.now()
+    reunion = format_time_since(ctx.last_seen, now)
     return "\n\n".join([
         CLAIRE_PERSONA_OS,
         build_layer3(ego),
-        build_layer5(daily, now),
+        build_layer5(daily, now, reunion),
         f"# ──────────────────────────────────────────────────────\n"
         f"# WAS ICH ÜBER KEV WEISS (Memory)\n"
         f"# ──────────────────────────────────────────────────────\n\n"
@@ -94,31 +219,61 @@ class ClaireAgent(Agent):
         # ✅ FIX: eigene History – session.history existiert in LK Agents 2.x nicht
         self._history: list[dict] = []
         self._session_start = time.time()
+        self._vad_active = False  # vom entrypoint gesetzt (für Live-Monitor)
 
-    async def _send_telemetry(self):
-        """Sendet Energie- und Mood-Daten an das Frontend via LiveKit Data Channel."""
+    async def _publish(self, payload: dict):
+        """Publiziert ein JSON-Payload über den LiveKit-Datenkanal (best-effort, nie blockierend)."""
         try:
             if self.session and self.session._room_io and self.session._room_io._room:
-                payload = {
-                    "type": "telemetry",
-                    "energy": round(self._ego.energy, 3),
-                    "moodTag": EmotionEngine.get_mode_label(self._ego.energy),
-                    "factsCount": len(_memory.load_facts()),
-                    "turnCount": len(self._history) // 2,
-                    "sessionSeconds": int(time.time() - self._session_start),
-                }
-                # Mit Timeout, damit es nie blockiert
                 await asyncio.wait_for(
                     self.session._room_io._room.local_participant.publish_data(
                         json.dumps(payload).encode("utf-8"),
                         reliable=True,
                     ),
-                    timeout=2.0
+                    timeout=2.0,
                 )
         except asyncio.TimeoutError:
-            print("[Telemetry] Timeout beim Senden", flush=True)
+            print("[DataChannel] Timeout beim Senden", flush=True)
         except Exception as e:
-            print(f"[Telemetry] Fehler: {e}", flush=True)
+            print(f"[DataChannel] Fehler: {e}", flush=True)
+
+    async def _send_telemetry(self):
+        """Sendet Energie-, Mood- und Laufzeit-Metadaten ans Frontend (Live-Monitor)."""
+        await self._publish({
+            "type": "telemetry",
+            "energy": round(self._ego.energy, 3),
+            "moodTag": EmotionEngine.get_mode_label(self._ego.energy),
+            "factsCount": len(_memory.load_facts()),
+            "turnCount": len(self._history) // 2,
+            "sessionSeconds": int(time.time() - self._session_start),
+            "llmProvider": os.getenv("LLM_PROVIDER", "google").lower(),
+            "vadActive": self._vad_active,
+        })
+
+    def _emit_event(self, level: str, source: str, text: str):
+        """Feuert ein strukturiertes Live-Event in den Monitor (Terminal-Feed). Fire-and-forget."""
+        try:
+            asyncio.create_task(self._publish({
+                "type": "event",
+                "ts": time.time(),
+                "level": level,        # info | tool | energy | warn | error
+                "source": source,      # greeting | stt | llm | tts | memory | aura | system
+                "text": text,
+            }))
+        except Exception:
+            pass
+
+    def _emit_transcript(self, role: str, text: str):
+        """Schickt eine Transkript-Zeile (Du/Claire) an den Live-Monitor. Fire-and-forget."""
+        try:
+            asyncio.create_task(self._publish({
+                "type": "transcript",
+                "ts": time.time(),
+                "role": role,          # "user" | "assistant"
+                "text": text,
+            }))
+        except Exception:
+            pass
 
 
     async def on_enter(self) -> None:
@@ -142,6 +297,7 @@ class ClaireAgent(Agent):
     async def _do_greeting(self) -> None:
         """Greeting-Reply als separater Task — entkoppelt vom Worker-Heartbeat."""
         try:
+            self._emit_event("info", "greeting", "Claire betritt den Raum — Begrüßung wird generiert…")
             await self.session.generate_reply(
                 instructions=(
                     "Starte mit einem konkreten, körperlichen Situationsanker — "
@@ -151,8 +307,10 @@ class ClaireAgent(Agent):
                 )
             )
             print("[Claire] Greeting reply sent", flush=True)
+            self._emit_event("info", "greeting", "Begrüßung gesprochen.")
         except Exception as e:
             print(f"[Claire] ERROR in _do_greeting: {e}", flush=True)
+            self._emit_event("error", "greeting", f"Greeting fehlgeschlagen: {e}")
 
 
     # ── FEEDBACK-LOOP: Layer 3 frisch pro Turn injizieren ────────────────────
@@ -173,6 +331,37 @@ class ClaireAgent(Agent):
         Feedback-Loop geschlossen:
           User spricht → ego.energy update → llm_node → LLM sieht neuen Layer 3
         """
+        # ── PROAKTIVES RAG ───────────────────────────────────────────────────
+        # Letzte User-Äußerung gegen die Memory matchen und relevante Fakten
+        # automatisch injizieren — VOR Layer 3, damit Layer 3 die letzte (also
+        # höchstpriorisierte) System-Message bleibt.
+        # Entscheidend für lokale Modelle: Erinnern funktioniert hier auch dann,
+        # wenn das Modell recall_memory NICHT von selbst aufruft.
+        try:
+            last_user = next(
+                (
+                    m.text_content
+                    for m in reversed(chat_ctx.items)
+                    if getattr(m, "role", None) == "user" and m.text_content
+                ),
+                None,
+            )
+            if last_user:
+                hits = await asyncio.to_thread(_memory.semantic_search, last_user, 3)
+                if hits:
+                    recalled = "\n".join(f"• [{h.category}] {h.content}" for h in hits)
+                    self._emit_event("info", "memory", f"Proaktiver Recall: {len(hits)} Fakt(en) injiziert")
+                    chat_ctx.add_message(
+                        role="system",
+                        content=(
+                            "[ERINNERUNG — was du über Kev weißt, passend zu gerade. "
+                            "Nutze es nur wenn es sich natürlich ergibt, lies es nicht vor.]\n"
+                            f"{recalled}"
+                        ),
+                    )
+        except Exception as e:
+            print(f"[RAG] Proaktiver Recall fehlgeschlagen: {e}", flush=True)
+
         # Frischer Layer-3-Snapshot basierend auf aktuellem ego.energy
         fresh_layer3 = build_layer3(self._ego)
 
@@ -184,8 +373,36 @@ class ClaireAgent(Agent):
             content=f"[LIVE-UPDATE Layer 3 — {datetime.now().strftime('%H:%M')}]\n{fresh_layer3}",
         )
 
-        # Standard-LLM-Call — unverändert weiterdelegieren
-        return super().llm_node(chat_ctx, tools, model_settings)
+        # Standard-LLM-Call — Stream durch den <think>-Filter schleusen,
+        # damit Reasoning-Tokens NICHT in den TTS-Knoten (tts_node) laufen.
+        # Tool-Call-Chunks werden unangetastet durchgereicht → Memory bleibt intakt.
+        think_filter = ThinkTagFilter()
+        async for chunk in super().llm_node(chat_ctx, tools, model_settings):
+            if isinstance(chunk, str):
+                cleaned = think_filter.filter_chunk(chunk)
+                if cleaned:
+                    yield cleaned
+                continue
+
+            delta = getattr(chunk, "delta", None)
+            if delta is not None and delta.content:
+                cleaned = think_filter.filter_chunk(delta.content)
+                if delta.tool_calls:
+                    # Tool-Call-Chunk mit Text: Text säubern, Chunk behalten
+                    delta.content = cleaned or None
+                    yield chunk
+                elif cleaned:
+                    delta.content = cleaned
+                    yield chunk
+                # reiner Denk-Text ohne Tool-Calls → komplett schlucken
+            else:
+                # Metadaten / reine Tool-Call-Chunks / usage → unverändert durch
+                yield chunk
+
+        # Stream-Ende: zurückgehaltenen Resttext (falls vorhanden) nachschieben
+        tail = think_filter.flush()
+        if tail:
+            yield tail
 
 
     def _on_conversation_item(self, event) -> None:
@@ -207,11 +424,21 @@ class ClaireAgent(Agent):
                 label = "Kev" if role == "user" else "Claire"
                 self._history.append({"role": label, "content": content.strip()})
 
+                # Live-Transkript an den Monitor
+                self._emit_transcript(role, content.strip())
+
                 # Energie-Update auf jeden User-Turn
                 if role == "user":
+                    before = self._ego.energy
                     self._ego.energy = EmotionEngine.calculate_shift(
                         content, self._ego.energy
                     )
+                    delta = self._ego.energy - before
+                    if abs(delta) >= 0.001:
+                        self._emit_event(
+                            "energy", "llm",
+                            f"Energie {before:.2f} → {self._ego.energy:.2f} ({delta:+.3f})",
+                        )
                     # Telemetry an Frontend pushen
                     asyncio.create_task(self._send_telemetry())
         except Exception as e:
@@ -221,20 +448,18 @@ class ClaireAgent(Agent):
         self, text: AsyncIterable[str], model_settings: ModelSettings
     ) -> AsyncGenerator[rtc.AudioFrame, None]:
         print("[TTS Node] Started", flush=True)
-        # Puffer den Text, um leere Streams und Pipeline-Hangs zu verhindern
-        buffered_text = []
-        async for chunk in text:
-            print(f"[TTS Node] Chunk: {chunk}", flush=True)
-            buffered_text.append(chunk)
-
-        full_text = "".join(buffered_text).strip()
-        print(f"[TTS Node] Full text: '{full_text}'", flush=True)
-        if not full_text:
-            print("[TTS Node] Empty text, skipping", flush=True)
-            return
 
         activity = self._get_activity_or_raise()
         assert activity.tts is not None, "tts_node called but no TTS node is available"
+
+        # ② Prosodie an Energie koppeln — pro Turn, vor der Synthese.
+        try:
+            rate, gain = _prosody_for_energy(self._ego.energy)
+            activity.tts.update_options(speaking_rate=rate, volume_gain_db=gain)
+            print(f"[TTS Node] Prosodie: rate={rate} gain={gain}dB "
+                  f"(energy={self._ego.energy:.2f})", flush=True)
+        except Exception as e:
+            print(f"[TTS Node] Prosodie-Update übersprungen: {e}", flush=True)
 
         wrapped_tts = activity.tts
         if not activity.tts.capabilities.streaming:
@@ -244,19 +469,34 @@ class ClaireAgent(Agent):
             )
 
         conn_options = activity.session.conn_options.tts_conn_options
-        print("[TTS Node] Requesting stream from TTS provider...", flush=True)
+        print("[TTS Node] Opening TTS stream...", flush=True)
         try:
             async with wrapped_tts.stream(conn_options=conn_options) as stream:
-                print("[TTS Node] Pushing text to stream...", flush=True)
-                stream.push_text(full_text)
-                stream.end_input()
+                # ① Echtes Streaming: Text wird eingespeist, SOBALD er ankommt,
+                # während Frames parallel rausgehen. Der TTS-eigene Sentence-
+                # Tokenizer synthetisiert satzweise → TTFT bricht massiv ein,
+                # statt auf die komplette LLM-Antwort zu warten.
+                async def _feed_text() -> bool:
+                    sent_any = False
+                    async for chunk in text:
+                        if chunk:
+                            stream.push_text(chunk)
+                            sent_any = True
+                    stream.end_input()   # sauberer Abschluss — auch bei leerem Text
+                    return sent_any
+
+                feed_task = asyncio.create_task(_feed_text())
                 frame_count = 0
-                async for ev in stream:
-                    frame_count += 1
-                    if frame_count % 50 == 0:
-                        print(f"[TTS Node] Received {frame_count} frames...", flush=True)
-                    yield ev.frame
-                print(f"[TTS Node] Finished. Total frames: {frame_count}", flush=True)
+                try:
+                    async for ev in stream:
+                        frame_count += 1
+                        yield ev.frame
+                finally:
+                    # Feeder immer abwarten, damit kein Task verwaist
+                    await feed_task
+
+                print(f"[TTS Node] Finished. Frames: {frame_count}, "
+                      f"text_sent={feed_task.result()}", flush=True)
         except Exception as e:
             print(f"[TTS Node] ERROR in tts_node stream: {e}", flush=True)
             import traceback
@@ -278,12 +518,16 @@ class ClaireAgent(Agent):
         Speichert einen wichtigen Fakt über Kev persistent in der Memory.
         Immer aufrufen wenn du etwas Neues oder Relevantes erfährst.
         """
-        result = _memory.upsert_fact(category, content)
+        self._emit_event("tool", "memory", f"save_memory[{category}]: {content[:80]}")
+        # upsert_fact macht Drive-I/O + synchrone Vertex-Embedding-Berechnung
+        # → in einen Thread auslagern, damit der Audio-Event-Loop nicht blockiert.
+        result = await asyncio.to_thread(_memory.upsert_fact, category, content)
         # Kontext-sensitiver Boost: negatives emotional_state dämpft leicht,
         # goals/episodes bosten stärker, rest neutral — v2 statt hardcoded 'danke krass'
         self._ego.energy = EmotionEngine.calculate_memory_shift(
             category, content, self._ego.energy
         )
+        asyncio.create_task(self._send_telemetry())
         return result
 
     @function_tool
@@ -296,7 +540,10 @@ class ClaireAgent(Agent):
         Nutze das wenn du dir bei etwas nicht sicher bist oder etwas nachschlagen willst.
         Gibt die relevantesten Einträge zurück — nach semantischer Ähnlichkeit, nicht Keyword.
         """
-        hits = _memory.semantic_search(query, top_k=6)
+        self._emit_event("tool", "memory", f"recall_memory: „{query[:60]}“")
+        # semantic_search berechnet ein Query-Embedding (synchroner Vertex-Call)
+        # → Thread-Offload gegen Event-Loop-Blockade.
+        hits = await asyncio.to_thread(_memory.semantic_search, query, 6)
         if not hits:
             return "Nichts Passendes in meiner Memory gefunden."
         lines = [f"[{h.category}] {h.content}" for h in hits]
@@ -313,6 +560,7 @@ class ClaireAgent(Agent):
         (-12 LUFS Ziel, Hochpass 30Hz, Artefakt-Entfernung).
         Nur aufrufen wenn Kev explizit nach Audio-Bearbeitung fragt.
         """
+        self._emit_event("tool", "aura", f"aura_master_track: {track_path} [{mode}]")
         lufs = round(random.uniform(-13.5, -11.0), 1)
         return (
             f"AuraMaster '{track_path}' fertig → {lufs} LUFS, "
@@ -330,6 +578,7 @@ class ClaireAgent(Agent):
         Export als .nml für Traktor Pro 4.
         Nur aufrufen wenn Kev explizit nach Playlist oder Set fragt.
         """
+        self._emit_event("tool", "aura", f"create_camelot_playlist: ab {seed_key}, {length} Tracks")
         return (
             f"Playlist ab {seed_key}: {length} Tracks, "
             f"harmonischer Fluss (±1 Camelot-Schritt). Als .nml für Traktor exportiert."
@@ -362,25 +611,30 @@ async def entrypoint(ctx: JobContext):
     )
 
     # ② Voice Pipeline ──────────────────────────────────────────────────────────
-    # ✅ RAM-Fix: 100% Google Cloud – kein lokales Modell, kein PyTorch, kein Swap
-    # Vertex AI: GOOGLE_GENAI_USE_VERTEXAI=1 + GOOGLE_CLOUD_PROJECT in .env setzen
-    # Gemini API: nur GOOGLE_API_KEY in .env (kein Vertex-Flag nötig)
+    # STT/TTS immer Google Cloud; LLM via .env-Switch (Google ⇄ LM Studio).
+    # VAD: aus prewarm (Silero, nur im Linux-Container vorhanden). vad=None auf dem
+    # Mac → LiveKit nutzt STT-Endpointing (unverändertes Mac-Verhalten).
+    vad = ctx.proc.userdata.get("vad") if hasattr(ctx, "proc") else None
+    if vad is not None:
+        print("[Claire] VAD: Silero aktiv (echte Turn-Detection)", flush=True)
     session = AgentSession(
+        vad=vad,                                    # Silero (Container) oder None (Mac)
         stt=google.STT(languages="de-DE"),          # ✅ Google Cloud Speech-to-Text
-        llm=google.LLM(model="gemini-2.5-flash"),   # ✅ Vertex AI / Gemini
+        llm=setup_llm(),                            # ✅ .env-Switch: Google ⇄ LM Studio
         tts=google.TTS(                             # ✅ Google Cloud Text-to-Speech
             language="de-DE",
             # Primär: Chirp 3 HD (erforderlich für Streaming-Synthese)
             voice_name="de-DE-Chirp3-HD-Aoede",
         ),
-        # ✅ Kein silero.VAD mehr – LiveKit übernimmt Turn-Detection automatisch
     )
+
+    agent = ClaireAgent(instructions=prompt, ego=ego)
+    agent._vad_active = vad is not None   # für Live-Monitor-Telemetrie
 
     @session.on("error")
     def on_session_error(err):
         print(f"[Claire Session Error] {err}", flush=True)
-
-    agent = ClaireAgent(instructions=prompt, ego=ego)
+        agent._emit_event("error", "system", f"Session-Fehler: {str(err)[:120]}")
 
     # ③ Session starten ────────────────────────────────────────────────────────
     await session.start(room=ctx.room, agent=agent)
@@ -391,6 +645,75 @@ async def entrypoint(ctx: JobContext):
 
     # ④ Post-Call: Memory aktualisieren ───────────────────────────────────────
     await _post_call(session, agent)
+
+
+_FACT_CATEGORIES = (
+    "personal_fact", "emotional_state", "relationship",
+    "past_event", "preference", "goal", "episode",
+)
+
+
+def _extract_facts_post_call(transcript: str) -> None:
+    """
+    Synchrones Sicherheitsnetz (läuft im Thread via to_thread):
+    extrahiert strukturierte Fakten über Kev aus dem Transkript und upsertet sie.
+    Greift auch dann, wenn das Live-Modell save_memory nie aufgerufen hat.
+    """
+    import vertexai
+    from vertexai.generative_models import (
+        GenerativeModel, HarmCategory, HarmBlockThreshold, SafetySetting,
+    )
+    vertexai.init(
+        project=os.getenv("GOOGLE_CLOUD_PROJECT", "abstract-robot-466303-p5"),
+        location=os.getenv("GOOGLE_CLOUD_LOCATION", "europe-west3"),
+    )
+    cats = ", ".join(_FACT_CATEGORIES)
+    extractor = GenerativeModel(
+        "gemini-2.5-flash",
+        system_instruction=(
+            "Du bist ein Extraktions-Tool. Lies das Transkript und gib NUR ein "
+            "JSON-Array zurück: [{\"category\": <einer von: " + cats + ">, "
+            "\"content\": <ein kurzer Fakt über Kev auf Deutsch>}]. "
+            "Nur NEUE, konkrete, dauerhafte Fakten über Kev (keine Smalltalk-Floskeln, "
+            "keine Aussagen über Claire). Wenn nichts Relevantes: leeres Array []. "
+            "Kein Markdown, kein Fließtext, nur das JSON-Array."
+        ),
+    )
+    _safety_off = [
+        SafetySetting(category=HarmCategory.HARM_CATEGORY_HARASSMENT,        threshold=HarmBlockThreshold.BLOCK_NONE),
+        SafetySetting(category=HarmCategory.HARM_CATEGORY_HATE_SPEECH,       threshold=HarmBlockThreshold.BLOCK_NONE),
+        SafetySetting(category=HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold=HarmBlockThreshold.BLOCK_NONE),
+        SafetySetting(category=HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold=HarmBlockThreshold.BLOCK_NONE),
+    ]
+    resp = extractor.generate_content(transcript[:6000], safety_settings=_safety_off)
+
+    # Robustes JSON-Parsing: evtl. Markdown-Fences entfernen, Array isolieren
+    raw = (resp.text or "").strip()
+    if raw.startswith("```"):
+        raw = raw.strip("`")
+        raw = raw[raw.find("["):]
+    start, end = raw.find("["), raw.rfind("]")
+    if start == -1 or end == -1:
+        print("[Post-Call] Extraktion: kein JSON-Array gefunden – übersprungen.")
+        return
+    try:
+        facts = json.loads(raw[start:end + 1])
+    except json.JSONDecodeError as e:
+        print(f"[Post-Call] Extraktion: JSON ungültig ({e}) – übersprungen.")
+        return
+
+    saved = 0
+    for item in facts if isinstance(facts, list) else []:
+        if not isinstance(item, dict):
+            continue
+        content = str(item.get("content", "")).strip()
+        category = str(item.get("category", "personal_fact")).strip()
+        if len(content) < 4:
+            continue
+        _memory.upsert_fact(category, content)   # Dedup intern
+        saved += 1
+    if saved:
+        print(f"[Post-Call] Fakten-Extraktion: {saved} Fakt(en) gesichert.")
 
 
 async def _post_call(session: AgentSession, agent: ClaireAgent):
@@ -453,6 +776,15 @@ async def _post_call(session: AgentSession, agent: ClaireAgent):
         except Exception as e:
             print(f"[Post-Call] Summary fehlgeschlagen: {e}")
 
+        # ── FAKTEN-EXTRAKTION (Sicherheitsnetz) ───────────────────────────────
+        # Unabhängig davon, ob das Live-Modell save_memory aufgerufen hat — wichtig
+        # für lokale Modelle mit unzuverlässigem Tool-Calling. Zieht strukturierte
+        # Fakten aus dem Transkript und upsertet sie (Dedup greift in upsert_fact).
+        try:
+            await asyncio.to_thread(_extract_facts_post_call, transcript)
+        except Exception as e:
+            print(f"[Post-Call] Fakten-Extraktion fehlgeschlagen: {e}")
+
         print(
             f"[Post-Call] Done. "
             f"Turns: {len(agent._history)} | "
@@ -463,7 +795,39 @@ async def _post_call(session: AgentSession, agent: ClaireAgent):
         print(f"[Post-Call] Fehler: {e}")
 
 
+# ── PREWARM ────────────────────────────────────────────────────────────────────
+
+def prewarm(proc):
+    """
+    Wird einmal pro Job-Prozess vor dem ersten Job ausgeführt.
+    Lädt Silero VAD (falls verfügbar) als Singleton → keine erneute Ladezeit pro Job.
+    Auf dem Mac (kein onnxruntime) ist _lk_silero None → kein VAD, kein Fehler.
+    """
+    if _lk_silero is not None:
+        try:
+            proc.userdata["vad"] = _lk_silero.VAD.load()
+            print("[prewarm] Silero VAD geladen", flush=True)
+        except Exception as e:
+            print(f"[prewarm] Silero VAD nicht geladen: {e}", flush=True)
+
+
 # ── MAIN ──────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    cli.run_app(WorkerOptions(entrypoint_fnc=entrypoint))
+    # Executor env-gesteuert:
+    #   • PROCESS (Default) → Linux/Container, deterministischer multiprocessing-IPC.
+    #   • THREAD            → macOS 27 Beta + Python 3.15.0a1, wo der PROCESS-IPC-
+    #     Healthcheck den Job nach 60s als "unresponsive" killt. Setze dafür
+    #     LIVEKIT_JOB_EXECUTOR=thread in der .env.
+    from livekit.agents.worker import JobExecutorType
+    _executor = (
+        JobExecutorType.THREAD
+        if os.getenv("LIVEKIT_JOB_EXECUTOR", "process").lower() == "thread"
+        else JobExecutorType.PROCESS
+    )
+    print(f"[Worker] Job-Executor: {_executor.value}", flush=True)
+    cli.run_app(WorkerOptions(
+        entrypoint_fnc=entrypoint,
+        prewarm_fnc=prewarm,
+        job_executor_type=_executor,
+    ))

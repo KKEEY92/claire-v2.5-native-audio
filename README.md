@@ -40,7 +40,7 @@ circadian rhythm simulation, and professional-grade audio intelligence.*
 | ⏰ **Circadian Rhythm** | 8-block daily energy model simulating natural human energy cycles |
 | 💾 **Persistent Memory** | Cross-session fact storage via Google Drive RAG |
 | 🎵 **AuraTone DSP** | Audio processing intelligence (LUFS, Camelot, Traktor Pro 4) |
-| ☁️ **100% Cloud Pipeline** | Zero local GPU dependency — full Google Cloud stack |
+| ☁️ **Cloud-First, Local-Optional** | Google Cloud STT/TTS + LLM, with an `.env` switch to run the LLM locally via LM Studio |
 | 🔒 **Post-Call Analysis** | Automatic transcript summarization with Gemini 2.5 Flash |
 | 📞 **LiveKit Call UI** | Connection state machine, German status labels, retry on error |
 | 📊 **Live Analytics** | Real-time facts, turns, and session duration via telemetry |
@@ -52,6 +52,16 @@ circadian rhythm simulation, and professional-grade audio intelligence.*
 
 | Area | Change |
 |---|---|
+| **Containerization** | `Dockerfile` + `docker-compose.yml` run agent + token-server on Linux/Python 3.12 (stable `multiprocessing` PROCESS executor **+ Silero VAD**). LM Studio & browser stay native on the Mac. See [DOCKER.md](DOCKER.md) |
+| **Job executor switch** | `LIVEKIT_JOB_EXECUTOR` (`process`\|`thread`). On **macOS 27 Beta + Python 3.15.0a1** the PROCESS-executor multiprocessing-IPC health-check kills the job at 60s → use `thread`; in the Linux container use `process` |
+| **Live Monitor** | New 🖥️ LIVE tab: live metadata (energy gauge + sparkline, mood, facts, turns, session, LLM/VAD badges), live transcript, and a terminal feed with **EVENTS** (data channel) ⇄ **RAW STDOUT** (`log_server.py` SSE `/logs`). Works over the data channel even when the macOS-Beta audio media path fails |
+| **Local LLM** | `.env`-driven `LLM_PROVIDER` switch — `google` (Gemini 2.5 Flash, Cloud) ⇄ `lmstudio` (local, OpenAI-compatible). STT/TTS stay on Google Cloud either way. See [Local LLM (LM Studio)](#-local-llm-lm-studio) |
+| **Reasoning filter** | Deterministic `<think>…</think>` stream filter in `llm_node` — strips reasoning tokens before TTS (handles tags split across chunks); tool-call chunks pass through untouched so memory stays intact |
+| **Voice latency** | `tts_node` now streams sentence-by-sentence (text fed as it arrives, frames out in parallel) instead of buffering the full reply — large TTFT cut |
+| **Voice prosody** | Speaking rate + volume now track `ego.energy` per turn (tired = slower/quieter, hyper = faster/present) |
+| **Proactive memory** | `llm_node` auto-injects the top-k relevant facts for each user turn — recall no longer depends on the model choosing to call `recall_memory` (key for local models) |
+| **Memory safety net** | Post-call structured fact extraction from the transcript — facts persist even if the live model never fired `save_memory`; facts cached in-memory + Drive/embedding I/O off the audio event loop |
+| **Continuity** | Day-stable daily context & Layer-3 thoughts (consistent across calls on the same day) + a "time since last talk" anchor in Layer 5 |
 | **Frontend** | LiveKit connection state machine (`idle` → `token_fetch` → `connecting` → `connected` / `error`) with German UI and **Erneut verbinden** retry |
 | **Hang-up** | `disconnect()` tears down the LiveKit room, stops mic tracks, and resets Zustand store (no zombie sessions) |
 | **Telemetry** | Agent sends `factsCount`, `turnCount`, `sessionSeconds`; Analytics view shows live data (`mm:ss` session time) |
@@ -83,7 +93,7 @@ graph TB
 
         subgraph PIPELINE["Voice Pipeline"]
             STT["Google STT\nde-DE Cloud Speech"]
-            LLM["Gemini 2.5 Flash\nVertex AI"]
+            LLM["LLM (.env switch)\nGemini 2.5 Flash ⇄ LM Studio"]
             TTS["Google TTS\nde-DE-Neural2-F"]
         end
 
@@ -161,7 +171,8 @@ graph TB
 |---|---|---|
 | **Runtime** | Python | 3.13+ |
 | **Voice Framework** | LiveKit Agents | 2.x |
-| **LLM** | Gemini 2.5 Flash (Vertex AI) | latest |
+| **LLM (Cloud)** | Gemini 2.5 Flash (Vertex AI) | latest |
+| **LLM (Local, optional)** | LM Studio via `livekit-plugins-openai` (e.g. `qwen2.5-7b-instruct`) | ≥1.1 |
 | **STT** | Google Cloud Speech-to-Text | Neural / Chirp |
 | **TTS** | Google Cloud Text-to-Speech | Neural2-F (de-DE) |
 | **AI SDK** | google-cloud-aiplatform | ≥1.71 |
@@ -214,6 +225,14 @@ LIVEKIT_API_KEY=your-api-key
 LIVEKIT_API_SECRET=your-api-secret
 ```
 
+Optional — local LLM switch (defaults to Google if unset):
+
+```env
+LLM_PROVIDER=google                          # "google" (Cloud) or "lmstudio" (local)
+LMSTUDIO_URL=http://localhost:1234/v1        # LM Studio OpenAI-compatible endpoint
+LMSTUDIO_MODEL=qwen2.5-7b-instruct           # instruct model with reliable tool-calling
+```
+
 ### 3. Google Cloud Authentication
 
 ```bash
@@ -245,6 +264,31 @@ python brain_test.py
 # Run full voice agent (requires LiveKit room)
 python agent.py start
 ```
+
+### 🧠 Local LLM (LM Studio)
+
+Claire's **brain** can run locally while STT/TTS stay on Google Cloud. Only the LLM moves — turn detection, speech-to-text, and text-to-speech remain in the Cloud pipeline.
+
+```bash
+# One-time: install the OpenAI-compatible plugin
+pip install livekit-plugins-openai
+```
+
+1. In **LM Studio**, load an **instruct** model (e.g. `qwen2.5-7b-instruct`) and start the local server (default `http://localhost:1234`).
+2. Set the switch in `.env`:
+   ```env
+   LLM_PROVIDER=lmstudio
+   LMSTUDIO_MODEL=qwen2.5-7b-instruct
+   ```
+3. Run the agent. On start the log shows which brain is active:
+   - `🤖 [LLM] LOKAL via LM Studio — …`
+   - `☁️ [LLM] CLOUD via Google Gemini 2.5 Flash`
+
+**Model choice matters:**
+- ✅ **Instruct models** (Qwen2.5-Instruct, etc.) — reliable function-calling, so `save_memory` / `recall_memory` keep working, and no reasoning leakage.
+- ⚠️ **R1-style reasoning models** — function-calling is unreliable (silently breaks memory). A `ThinkTagFilter` in `llm_node` strips `<think>…</think>` from the audio stream as a safety net, but the tool-calling risk remains.
+
+> 💡 On 16 GB RAM, a 14B model plus the full persona prompt pushes time-to-first-token past the ~1.5 s voice-comfort threshold. Prefer 7B for live conversation; keep larger local models for background/offline tasks.
 
 ### Frontend views
 

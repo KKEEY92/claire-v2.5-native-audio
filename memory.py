@@ -149,6 +149,7 @@ class MemoryContext:
     facts: list[MemoryEntry] = field(default_factory=list)
     ego_energy: float = 0.65
     last_summary: str = ""
+    last_seen: str = ""   # ISO-Timestamp des letzten Gesprächsendes (für Zeitgefühl)
 
     def to_prompt_string(self, max_per_cat: int = 5) -> str:
         """Kompakter String für den System-Prompt."""
@@ -203,7 +204,8 @@ class DriveMemory:
     def __init__(self):
         self._folder_id = os.getenv("GDRIVE_MEMORY_FOLDER_ID")
         self._svc = None
-        self._local: dict[str, object] = {}   # In-Memory Fallback
+        self._local: dict[str, object] = {}        # In-Memory Fallback
+        self._facts_cache: Optional[list[MemoryEntry]] = None  # vermeidet Drive-Roundtrip pro Recall
 
         if _DRIVE_OK and self._folder_id:
             try:
@@ -220,13 +222,20 @@ class DriveMemory:
     # ── PUBLIC API ─────────────────────────────────────────────────────────────
 
     def load_facts(self) -> list[MemoryEntry]:
+        # Cache: erster Aufruf liest aus Drive, danach In-Memory (jeder Recall
+        # lief vorher in einen Drive-get_media-Roundtrip → Latenz in der Pipeline).
+        if self._facts_cache is not None:
+            return self._facts_cache
         raw = self._read_json("facts.json")
         if not isinstance(raw, list):
-            return []
-        return [MemoryEntry.from_dict(e) for e in raw if "content" in e]
+            self._facts_cache = []
+        else:
+            self._facts_cache = [MemoryEntry.from_dict(e) for e in raw if "content" in e]
+        return self._facts_cache
 
     def save_facts(self, entries: list[MemoryEntry]):
         self._write_json("facts.json", [e.to_dict() for e in entries])
+        self._facts_cache = entries   # Cache konsistent halten statt invalidieren
 
     def upsert_fact(self, category: str, content: str, importance: float = 0.5) -> str:
         """
@@ -323,6 +332,7 @@ class DriveMemory:
             facts=self.load_facts(),
             ego_energy=ego.get("energy", 0.65),
             last_summary=self.load_last_summary(),
+            last_seen=ego.get("ts", ""),   # save_ego_state() schreibt ts beim Post-Call
         )
 
     # ── DRIVE I/O (privat) ────────────────────────────────────────────────────
