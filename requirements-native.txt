@@ -1,0 +1,11 @@
+# Claire V2.5 (Native Audio) — Standalone Voice Agent
+# Nur für claire.py — die originalen requirements.txt sind für agent.py (LiveKit).
+# Install: python -m venv .venv && .venv/bin/pip install -r requirements-native.txt
+
+google-genai>=1.0
+pyaudio>=0.2.14
+vertexai>=1.71
+google-cloud-aiplatform>=1.71
+google-api-python-client>=2.100
+google-auth>=2.30
+python-dotenv>=1.0

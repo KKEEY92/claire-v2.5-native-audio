@@ -1,368 +1,124 @@
 <div align="center">
 
-<img src="https://img.shields.io/badge/Claire-V2-blueviolet?style=for-the-badge&logo=googlecloud&logoColor=white" alt="Claire V2"/>
-<img src="https://img.shields.io/badge/Python-3.13+-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python 3.13+"/>
-<img src="https://img.shields.io/badge/Vertex_AI-Gemini_2.5_Flash-4285F4?style=for-the-badge&logo=google&logoColor=white" alt="Vertex AI"/>
-<img src="https://img.shields.io/badge/LiveKit-Agents_2.x-FF6B35?style=for-the-badge&logo=webrtc&logoColor=white" alt="LiveKit"/>
-<img src="https://img.shields.io/badge/License-Proprietary-red?style=for-the-badge" alt="Proprietary"/>
-<img src="https://img.shields.io/badge/Cloud-europe--west3-34A853?style=for-the-badge&logo=googlecloud&logoColor=white" alt="europe-west3"/>
+<img src="https://img.shields.io/badge/Claire-V2.5_Native_Audio-blueviolet?style=for-the-badge&logo=googlecloud&logoColor=white" alt="Claire V2.5"/>
+<img src="https://img.shields.io/badge/Gemini-Native_Audio-4285F4?style=for-the-badge&logo=google&logoColor=white" alt="Gemini Native Audio"/>
+<img src="https://img.shields.io/badge/Full_Duplex-200ms-00C853?style=for-the-badge" alt="Full Duplex"/>
+<img src="https://img.shields.io/badge/EmotionEngine-v2-FF6D00?style=for-the-badge" alt="EmotionEngine"/>
+<img src="https://img.shields.io/badge/Memory-Persistent-7C4DFF?style=for-the-badge" alt="Memory"/>
 
-<br/>
-<br/>
+<br/><br/>
 
-# 🎙️ CLAIRE V2
-
-### Autonomous Voice AI Agent · Emotion Engine · Real-Time Audio Intelligence
-
-*A fully autonomous, emotionally aware voice AI agent with persistent memory,  
-circadian rhythm simulation, and professional-grade audio intelligence.*
+**Standalone upgrade von [Claire V2](https://github.com/KKEEY92/claire-v2).**<br/>
+Gemini Native Audio ersetzt die komplette STT→LLM→TTS Pipeline.<br/>
+Kein LiveKit, kein Web-Framework, kein Docker. Nur Mikrofon → Gemini → Lautsprecher.
 
 </div>
 
 ---
 
-## ⚠️ Copyright Notice
+## Was ist anders als V2?
 
-> **© 2026 Kevin Kuck — All Rights Reserved.**  
-> This project, including its AI persona design, EmotionEngine architecture, system prompts, and all source code, is proprietary intellectual property. Unauthorized use, reproduction, or distribution is strictly prohibited. See [`LICENSE`](./LICENSE) for full terms.
-
----
-
-## 📋 Overview
-
-**Claire V2** is a production-grade, real-time voice AI agent built on the LiveKit Agents 2.x framework. Claire is not a generic chatbot — she is a fully realized AI persona with a deterministic emotional state system, persistent cross-session memory, and deep audio/music domain expertise.
-
-### Core Differentiators
-
-| Feature | Description |
-|---|---|
-| 🧠 **EmotionEngine** | Deterministic energy-level system (0.0–1.0) with ±0.08 clamp per turn |
-| ⏰ **Circadian Rhythm** | 8-block daily energy model simulating natural human energy cycles |
-| 💾 **Persistent Memory** | Cross-session fact storage via Google Drive RAG |
-| 🎵 **AuraTone DSP** | Audio processing intelligence (LUFS, Camelot, Traktor Pro 4) |
-| ☁️ **Cloud-First, Local-Optional** | Google Cloud STT/TTS + LLM, with an `.env` switch to run the LLM locally via LM Studio |
-| 🔒 **Post-Call Analysis** | Automatic transcript summarization with Gemini 2.5 Flash |
-| 📞 **LiveKit Call UI** | Connection state machine, German status labels, retry on error |
-| 📊 **Live Analytics** | Real-time facts, turns, and session duration via telemetry |
-| 🎚️ **Voice Visualizer** | Web Audio API analyser driven by Claire's actual audio output |
-
----
-
-## 🆕 Recent Updates (June 2026)
-
-| Area | Change |
-|---|---|
-| **Containerization** | `Dockerfile` + `docker-compose.yml` run agent + token-server on Linux/Python 3.12 (stable `multiprocessing` PROCESS executor **+ Silero VAD**). LM Studio & browser stay native on the Mac. See [DOCKER.md](DOCKER.md) |
-| **Job executor switch** | `LIVEKIT_JOB_EXECUTOR` (`process`\|`thread`). On **macOS 27 Beta + Python 3.15.0a1** the PROCESS-executor multiprocessing-IPC health-check kills the job at 60s → use `thread`; in the Linux container use `process` |
-| **Live Monitor** | New 🖥️ LIVE tab: live metadata (energy gauge + sparkline, mood, facts, turns, session, LLM/VAD badges), live transcript, and a terminal feed with **EVENTS** (data channel) ⇄ **RAW STDOUT** (`log_server.py` SSE `/logs`). Works over the data channel even when the macOS-Beta audio media path fails |
-| **Local LLM** | `.env`-driven `LLM_PROVIDER` switch — `google` (Gemini 2.5 Flash, Cloud) ⇄ `lmstudio` (local, OpenAI-compatible). STT/TTS stay on Google Cloud either way. See [Local LLM (LM Studio)](#-local-llm-lm-studio) |
-| **Reasoning filter** | Deterministic `<think>…</think>` stream filter in `llm_node` — strips reasoning tokens before TTS (handles tags split across chunks); tool-call chunks pass through untouched so memory stays intact |
-| **Voice latency** | `tts_node` now streams sentence-by-sentence (text fed as it arrives, frames out in parallel) instead of buffering the full reply — large TTFT cut |
-| **Voice prosody** | Speaking rate + volume now track `ego.energy` per turn (tired = slower/quieter, hyper = faster/present) |
-| **Proactive memory** | `llm_node` auto-injects the top-k relevant facts for each user turn — recall no longer depends on the model choosing to call `recall_memory` (key for local models) |
-| **Memory safety net** | Post-call structured fact extraction from the transcript — facts persist even if the live model never fired `save_memory`; facts cached in-memory + Drive/embedding I/O off the audio event loop |
-| **Continuity** | Day-stable daily context & Layer-3 thoughts (consistent across calls on the same day) + a "time since last talk" anchor in Layer 5 |
-| **Frontend** | LiveKit connection state machine (`idle` → `token_fetch` → `connecting` → `connected` / `error`) with German UI and **Erneut verbinden** retry |
-| **Hang-up** | `disconnect()` tears down the LiveKit room, stops mic tracks, and resets Zustand store (no zombie sessions) |
-| **Telemetry** | Agent sends `factsCount`, `turnCount`, `sessionSeconds`; Analytics view shows live data (`mm:ss` session time) |
-| **Visualizer (B3)** | Replaced synthetic FFT with real `AnalyserNode` on remote audio via lazy singleton `AudioContext` |
-| **Repo** | Legacy `claire-v2-frontend/` archived under `_archive/`; active app is `src/` at project root |
-| **Dependencies** | `livekit-agents[google]` only — Deepgram/ElevenLabs/Silero extras removed (RAM optimization) |
-| **Docs** | `ZUSTANDSBERICHT_2026-06-04.md`, `CLAIRE_V2_Aenderungsbericht.pdf` (change report) |
-
----
-
-## 🏗️ Architecture
-
-```mermaid
-graph TB
-    subgraph CLIENT["🖥️ Client Layer"]
-        UI["Frontend Interface\n(Stitch + Vertex Design)"]
-    end
-
-    subgraph LIVEKIT["🔴 LiveKit WebRTC Layer"]
-        ROOM["LiveKit Room"]
-        VAD["Turn Detection\n(Native LiveKit)"]
-    end
-
-    subgraph AGENT["🤖 Claire Agent (Cloud Run · europe-west3)"]
-        direction TB
-        ENTRY["entrypoint()"]
-        SESSION["AgentSession"]
-        CLAIRE["ClaireAgent\n(LiveKit Agent 2.x)"]
-
-        subgraph PIPELINE["Voice Pipeline"]
-            STT["Google STT\nde-DE Cloud Speech"]
-            LLM["LLM (.env switch)\nGemini 2.5 Flash ⇄ LM Studio"]
-            TTS["Google TTS\nde-DE-Neural2-F"]
-        end
-
-        subgraph PERSONA["Persona Layer"]
-            EE["EmotionEngine\n(Deterministic ±0.08)"]
-            CIRC["Circadian Rhythm\n(8-Block Model)"]
-            DAILY["Daily Context\nGenerator"]
-        end
-
-        subgraph TOOLS["Function Tools"]
-            SM["save_memory()"]
-            RM["recall_memory()"]
-            AT["aura_master_track()"]
-            CP["create_camelot_playlist()"]
-        end
-    end
-
-    subgraph MEMORY["💾 Memory Layer (Google Drive)"]
-        FACTS["Fact Store\n(JSON)"]
-        TRANS["Transcripts"]
-        EGO["EgoState\n(Energy Persistence)"]
-        SUM["Session Summaries\n(Gemini Post-Call)"]
-    end
-
-    UI --> ROOM
-    ROOM --> VAD --> CLAIRE
-    CLAIRE --> PIPELINE
-    STT --> LLM --> TTS
-    LLM --> TOOLS
-    CLAIRE --> PERSONA
-    EE --> CIRC
-    TOOLS --> MEMORY
-    ENTRY --> PERSONA
-    MEMORY --> ENTRY
-```
-
----
-
-## 📁 Project Structure
-
-```
-00_CLAIRE_V2_APP/          # Project root (this repository)
-├── src/                   # Active frontend (Vite + React + TypeScript)
-│   ├── App.tsx
-│   ├── components/        # Call, AuraTone, Analytics, Dashboard
-│   ├── hooks/             # useLiveKit.ts
-│   └── stores/            # emotionStore (Zustand)
-├── index.html
-├── package.json
-├── vite.config.ts
-├── agent.py               # LiveKit voice agent – main backend entrypoint
-├── persona.py             # EmotionEngine, EgoState, CircadianRhythm
-├── memory.py              # DriveMemory – persistent RAG via Google Drive
-├── token_server.py        # Local LiveKit JWT token server (dev)
-├── brain_test.py          # Isolated core logic – text-only validation
-├── requirements.txt       # Python dependencies (Google-only LiveKit extras)
-├── .env.example           # Environment variable template (safe to commit)
-├── .gitignore
-├── LICENSE
-├── ZUSTANDSBERICHT_2026-06-04.md   # Project status & improvement plan
-├── CLAIRE_V2_Aenderungsbericht.pdf # PDF change report (session work)
-├── _archive/              # Retired artifacts (not used in production)
-│   └── claire-v2-frontend/  # Legacy Vite counter template (archived)
-└── .agents/
-    └── rules/
-        └── workspace.md   # Development pipeline (4-phase workflow)
-```
-
----
-
-## 🚀 Tech Stack
-
-### Backend & AI
-| Component | Technology | Version |
+| | Claire V2 | Claire V2.5 (Native Audio) |
 |---|---|---|
-| **Runtime** | Python | 3.13+ |
-| **Voice Framework** | LiveKit Agents | 2.x |
-| **LLM (Cloud)** | Gemini 2.5 Flash (Vertex AI) | latest |
-| **LLM (Local, optional)** | LM Studio via `livekit-plugins-openai` (e.g. `qwen2.5-7b-instruct`) | ≥1.1 |
-| **STT** | Google Cloud Speech-to-Text | Neural / Chirp |
-| **TTS** | Google Cloud Text-to-Speech | Neural2-F (de-DE) |
-| **AI SDK** | google-cloud-aiplatform | ≥1.71 |
-| **Async Runtime** | asyncio (Python native) | — |
+| **Architektur** | Google STT → Gemini LLM → Google TTS (Chirp3-HD) | Gemini Native Audio (alles in einem) |
+| **Latenz** | ~800ms (3 API-Calls) | ~200ms (1 Session) |
+| **Duplex** | Half-Duplex (abwechselnd) | **Full-Duplex** (gleichzeitig hören + sprechen) |
+| **Infrastruktur** | LiveKit + Cloud Run + Docker | **`python claire.py`** |
+| **Stimme** | Google TTS Chirp3-HD | Gemini Neural Voices (Aoede, Kore, etc.) |
+| **Prosodie** | TTS-Parameter (rate, gain) | Prompt-gesteuert (natürlicher) |
+| **Dependencies** | ~15 Packages + LiveKit Server | 7 Packages, kein Server |
 
-### Infrastructure
-| Component | Technology |
-|---|---|
-| **Cloud Provider** | Google Cloud Platform |
-| **Deployment Region** | europe-west3 (Frankfurt) |
-| **Compute** | Cloud Run (serverless) |
-| **Memory/RAG** | Google Drive API |
-| **Real-time Transport** | LiveKit (WebRTC) |
+## Was gleich geblieben ist
 
----
+- **KKI Persona OS v1.0** — 7-Layer Identity Framework (`persona.py`)
+- **EmotionEngine v2** — Energie-Tracking über Turns, zirkadiane Rhythmen
+- **Persistente Memory** — Google Drive + Vertex AI Embeddings (`memory.py`)
+- **Tools** — `save_memory`, `recall_memory`
 
-## ⚙️ Setup & Installation
-
-### Prerequisites
-- Python 3.13+
-- Google Cloud Project with Vertex AI API enabled
-- LiveKit Cloud account (or self-hosted server)
-- Google Drive API credentials (for memory persistence)
-
-### 1. Clone & Environment
+## Quickstart
 
 ```bash
-git clone https://github.com/KKEEY92/claire-v2.git
-cd claire-v2
-python3.13 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
+# 1. Clone
+git clone https://github.com/KKEEY92/claire-v2.5-native-audio.git
+cd claire-v2.5-native-audio
+
+# 2. Venv + Dependencies
+python3 -m venv .venv
+.venv/bin/pip install -r requirements-native.txt
+
+# 3. API Key (https://aistudio.google.com/apikey)
+cp .env.native.example .env
+# → GOOGLE_API_KEY eintragen
+
+# 4. Starten
+.venv/bin/python claire.py
 ```
 
-### 2. Configure Environment
+## Architektur
 
-```bash
-cp .env.example .env
-# Edit .env with your credentials – NEVER commit this file!
+```
+┌─────────────────────────────────────────────────────────────┐
+│  claire.py                                                  │
+│                                                             │
+│  ┌──────────┐    ┌────────────────────────────────────┐     │
+│  │ Mikrofon │───▶│  Gemini 2.5 Flash Native Audio     │     │
+│  │ (pyaudio)│◀───│  • Audio-in / Audio-out             │     │
+│  └──────────┘    │  • Full-Duplex                      │     │
+│       ▲          │  • Claires Persona (System Prompt)   │     │
+│       │          │  • Tool Calling (Memory)             │     │
+│  ┌────┴────┐     └──────────┬─────────────────────────┘     │
+│  │ Speaker │                │                               │
+│  │(pyaudio)│     ┌──────────▼─────────────────────────┐     │
+│  └─────────┘     │  EmotionEngine + Memory             │     │
+│                  │  • EgoState (Energie 0.0–1.0)       │     │
+│                  │  • Prosodie via Prompt               │     │
+│                  │  • Google Drive Persistence          │     │
+│                  └────────────────────────────────────┘     │
+└─────────────────────────────────────────────────────────────┘
 ```
 
-Required variables:
+## Konfiguration (.env)
 
 ```env
-GOOGLE_CLOUD_PROJECT=your-gcp-project-id
+# Gemini API Key (kostenlos: aistudio.google.com/apikey)
+GOOGLE_API_KEY=...
+
+# Modell
+CLAIRE_MODEL=gemini-2.5-flash-native-audio-preview
+
+# Stimme
+#   Aoede    — weiblich, warm, empathisch (Default)
+#   Kore     — weiblich, jung, energisch
+#   Puck     — männlich, lebendig
+#   Charon   — männlich, tief, ruhig
+#   Fenrir   — männlich, markant
+CLAIRE_VOICE=Aoede
+
+# Google Cloud (für Memory-Embeddings)
+GOOGLE_CLOUD_PROJECT=your-project-id
 GOOGLE_CLOUD_LOCATION=europe-west3
-GOOGLE_GENAI_USE_VERTEXAI=1
-LIVEKIT_URL=wss://your-server.livekit.cloud
-LIVEKIT_API_KEY=your-api-key
-LIVEKIT_API_SECRET=your-api-secret
 ```
 
-Optional — local LLM switch (defaults to Google if unset):
+## Dateien
 
-```env
-LLM_PROVIDER=google                          # "google" (Cloud) or "lmstudio" (local)
-LMSTUDIO_URL=http://localhost:1234/v1        # LM Studio OpenAI-compatible endpoint
-LMSTUDIO_MODEL=qwen2.5-7b-instruct           # instruct model with reliable tool-calling
-```
+| Datei | Beschreibung | Status |
+|-------|-------------|--------|
+| `claire.py` | Standalone Native Audio Agent | ✨ NEU |
+| `requirements-native.txt` | Dependencies für claire.py | ✨ NEU |
+| `.env.native.example` | Config-Template für claire.py | ✨ NEU |
+| `agent.py` | Original V2 LiveKit Agent (Referenz) | unverändert |
+| `persona.py` | KKI Persona OS v1.0 | unverändert |
+| `memory.py` | DriveMemory + Embeddings | unverändert |
 
-### 3. Google Cloud Authentication
+## Verwandte Repos
 
-```bash
-gcloud auth application-default login
-gcloud config set project $GOOGLE_CLOUD_PROJECT
-```
+| Repo | Beschreibung |
+|------|-------------|
+| [claire-v2](https://github.com/KKEEY92/claire-v2) | Original mit LiveKit Pipeline (Production) |
+| [Claire-V2-Architecture](https://github.com/KKEEY92/Claire-V2-Architecture) | Architektur-Dokumentation |
+| [Aria](https://github.com/KKEEY92/Aria---Your-AI-Companion) | AI Companion mit Gemini Native Audio (React) |
+| **claire-v2.5-native-audio** | ← dieses Repo |
 
-### 4. Frontend (Vite + React)
+## Lizenz
 
-```bash
-npm install
-cp .env.example .env   # set VITE_LIVEKIT_URL, VITE_LIVEKIT_TOKEN_ENDPOINT
-npm run dev            # http://localhost:5173
-```
-
-Token server (separate terminal — see comments in `requirements.txt`):
-
-```bash
-pip install flask livekit-api
-python token_server.py
-```
-
-### 5. Run Locally
-
-```bash
-# Validate core logic (text-only, no audio)
-python brain_test.py
-
-# Run full voice agent (requires LiveKit room)
-python agent.py start
-```
-
-### 🧠 Local LLM (LM Studio)
-
-Claire's **brain** can run locally while STT/TTS stay on Google Cloud. Only the LLM moves — turn detection, speech-to-text, and text-to-speech remain in the Cloud pipeline.
-
-```bash
-# One-time: install the OpenAI-compatible plugin
-pip install livekit-plugins-openai
-```
-
-1. In **LM Studio**, load an **instruct** model (e.g. `qwen2.5-7b-instruct`) and start the local server (default `http://localhost:1234`).
-2. Set the switch in `.env`:
-   ```env
-   LLM_PROVIDER=lmstudio
-   LMSTUDIO_MODEL=qwen2.5-7b-instruct
-   ```
-3. Run the agent. On start the log shows which brain is active:
-   - `🤖 [LLM] LOKAL via LM Studio — …`
-   - `☁️ [LLM] CLOUD via Google Gemini 2.5 Flash`
-
-**Model choice matters:**
-- ✅ **Instruct models** (Qwen2.5-Instruct, etc.) — reliable function-calling, so `save_memory` / `recall_memory` keep working, and no reasoning leakage.
-- ⚠️ **R1-style reasoning models** — function-calling is unreliable (silently breaks memory). A `ThinkTagFilter` in `llm_node` strips `<think>…</think>` from the audio stream as a safety net, but the tool-calling risk remains.
-
-> 💡 On 16 GB RAM, a 14B model plus the full persona prompt pushes time-to-first-token past the ~1.5 s voice-comfort threshold. Prefer 7B for live conversation; keep larger local models for background/offline tasks.
-
-### Frontend views
-
-| View | Route / Tab | Status |
-|---|---|---|
-| **Call** | `call` | LiveKit connect, German status, retry, Web Audio visualizer |
-| **AuraTone** | `auratone` | Visual shell (Camelot wheel) |
-| **Analytics** | `analytics` | Live facts count, session time, conversation turns |
-
----
-
-## 🔒 Security
-
-### Secrets Management
-- **All API keys** are stored exclusively in `.env` (gitignored)
-- `.env.example` provides a safe template with zero real credentials
-- `service_account.json` and all credential files are gitignored by pattern
-- Memory transcripts containing personal data are excluded from version control
-
-### Data Privacy
-- Conversation transcripts are stored only in your private Google Drive
-- No telemetry, no third-party data sharing
-- Personal context (memory facts) remains within your GCP project boundary
-
-### Dependency Security
-- Pin all dependencies with minimum version constraints in `requirements.txt`
-- Regularly audit with: `pip audit`
-
-### Threat Model
-| Risk | Mitigation |
-|---|---|
-| API key exposure | `.gitignore` + `.env` pattern + `.env.example` |
-| Personal data leakage | Memory/transcript paths gitignored |
-| Unauthorized model access | GCP IAM + Vertex AI service account scoping |
-| Prompt injection | System prompt is server-side only, never client-exposed |
-
----
-
-## 🚀 Deployment (Cloud Run)
-
-```bash
-gcloud run deploy realtime-agent \
-  --source . \
-  --region europe-west3 \
-  --allow-unauthenticated
-```
-
----
-
-## 🛠️ Development Pipeline
-
-This project follows a strict 4-phase development workflow:
-
-| Phase | Focus | Status |
-|---|---|---|
-| **Phase 1** | Isolated core (`brain_test.py`) – EmotionEngine, Tool Calling, Drive RAG | ✅ Done |
-| **Phase 2** | Backend & LiveKit wrapper (`agent.py`) – Google STT/TTS, telemetry | ✅ Done |
-| **Phase 3** | Frontend – Call UI, connection FSM, analytics, audio visualizer | 🟡 Core done, AuraTone polish open |
-| **Phase 4** | Documentation & Cloud Run Deployment | 🔄 In Progress |
-
----
-
-## 📄 License
-
-**© 2026 Kevin Kuck — All Rights Reserved.**
-
-This project is **proprietary software**. No license is granted for use, modification, or distribution without explicit written consent from the copyright holder.
-
-See [`LICENSE`](./LICENSE) for the full proprietary license terms.
-
----
-
-<div align="center">
-
-*Built with precision by Kevin Kuck · Powered by Google Cloud · Frankfurt, Germany*
-
-</div>
+MIT
