@@ -1,0 +1,810 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Claire V2.5 — Voice Agent Cockpit</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg:#0a0a0f;--surface:rgba(15,15,25,0.75);--glass:rgba(255,255,255,0.04);
+  --border:rgba(255,255,255,0.08);--text:#e0e0e8;--dim:#666;--accent:#7c6aef;
+  --accent2:#4ecdc4;--kev:#e8b84a;--claire:#7cc4f5;--energy-low:#e74c3c;
+  --energy-mid:#f39c12;--energy-high:#2ecc71;--radius:12px;
+  --font:'SF Mono',ui-monospace,'Cascadia Code','Fira Code',monospace;
+}
+html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);font-family:var(--font);font-size:13px}
+
+/* ── SHADER CANVAS ─────────────────────────── */
+#shader-canvas{position:fixed;top:0;left:0;width:100%;height:100%;z-index:0;opacity:0.5;pointer-events:none}
+
+/* ── LAYOUT ────────────────────────────────── */
+#app{position:relative;z-index:1;display:grid;height:100vh;
+  grid-template-columns:260px 1fr 280px;grid-template-rows:48px 1fr 52px;
+  grid-template-areas:"hdr hdr hdr" "side main right" "foot foot foot";gap:1px}
+
+/* ── PANELS ────────────────────────────────── */
+.panel{background:var(--surface);backdrop-filter:blur(20px) saturate(1.4);
+  border:1px solid var(--border);overflow:hidden}
+.panel-title{font-size:10px;text-transform:uppercase;letter-spacing:1.5px;color:var(--dim);
+  padding:12px 14px 8px;border-bottom:1px solid var(--border)}
+
+/* ── HEADER ────────────────────────────────── */
+#header{grid-area:hdr;display:flex;align-items:center;justify-content:space-between;
+  padding:0 16px;background:rgba(10,10,15,0.9);border-bottom:1px solid var(--border)}
+#header .logo{font-size:14px;font-weight:700;letter-spacing:2px}
+#header .logo span{color:var(--accent)}
+#status-bar{display:flex;gap:16px;align-items:center;font-size:11px;color:var(--dim)}
+.status-dot{width:8px;height:8px;border-radius:50%;background:var(--energy-low);display:inline-block;margin-right:4px}
+.status-dot.connected{background:var(--energy-high);box-shadow:0 0 8px var(--energy-high)}
+
+/* ── SIDEBAR (Config) ──────────────────────── */
+#sidebar{grid-area:side;display:flex;flex-direction:column;gap:1px;overflow-y:auto}
+.config-group{padding:12px 14px}
+.config-group label{display:block;font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--dim);margin-bottom:6px}
+.config-group select,.config-group input[type=range]{width:100%;background:var(--glass);color:var(--text);border:1px solid var(--border);
+  border-radius:6px;padding:6px 8px;font-family:var(--font);font-size:12px;outline:none}
+.config-group select:focus{border-color:var(--accent)}
+.config-group input[type=range]{-webkit-appearance:none;height:4px;border-radius:2px;background:var(--border);padding:0;margin-top:4px}
+.config-group input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;border-radius:50%;background:var(--accent);cursor:pointer}
+.persona-layers{padding:12px 14px;font-size:10px;line-height:1.8}
+.persona-layers .layer{display:flex;gap:8px;align-items:center;color:var(--dim)}
+.persona-layers .layer .dot{width:6px;height:6px;border-radius:50%;flex-shrink:0}
+
+/* ── SHADER SELECTOR ───────────────────────── */
+.shader-pills{display:flex;flex-wrap:wrap;gap:4px;padding:0 14px 12px}
+.shader-pill{padding:4px 10px;border-radius:16px;font-size:10px;cursor:pointer;
+  background:var(--glass);border:1px solid var(--border);color:var(--dim);transition:all .2s}
+.shader-pill.active{background:var(--accent);color:#fff;border-color:var(--accent)}
+
+/* ── MAIN AREA ─────────────────────────────── */
+#main{grid-area:main;display:flex;flex-direction:column;gap:1px;overflow:hidden}
+
+/* Waveform */
+#waveform-panel{height:120px;position:relative;flex-shrink:0}
+#waveform-canvas{width:100%;height:100%}
+#call-btn{position:absolute;bottom:12px;left:50%;transform:translateX(-50%);
+  width:56px;height:56px;border-radius:50%;border:2px solid var(--accent);background:rgba(124,106,239,0.15);
+  color:var(--accent);font-size:22px;cursor:pointer;display:flex;align-items:center;justify-content:center;
+  transition:all .2s;z-index:2}
+#call-btn:hover{background:var(--accent);color:#fff;box-shadow:0 0 20px rgba(124,106,239,0.4)}
+#call-btn.active{background:#e74c3c;border-color:#e74c3c;color:#fff;animation:pulse 1.5s infinite}
+@keyframes pulse{0%,100%{box-shadow:0 0 0 0 rgba(231,76,60,0.4)}50%{box-shadow:0 0 0 12px rgba(231,76,60,0)}}
+#duplex-indicator{position:absolute;top:8px;right:12px;font-size:9px;color:var(--dim);
+  padding:3px 8px;border-radius:10px;background:var(--glass);border:1px solid var(--border)}
+#duplex-indicator.active{color:var(--accent2);border-color:var(--accent2)}
+
+/* Transcript */
+#transcript-panel{flex:1;overflow:hidden;display:flex;flex-direction:column}
+#transcript-scroll{flex:1;overflow-y:auto;padding:12px 16px;scroll-behavior:smooth}
+.msg{margin-bottom:10px;max-width:85%}
+.msg.kev{margin-left:auto;text-align:right}
+.msg .role{font-size:9px;text-transform:uppercase;letter-spacing:1px;margin-bottom:2px}
+.msg.kev .role{color:var(--kev)}
+.msg.claire .role{color:var(--claire)}
+.msg .text{font-size:12px;line-height:1.5;padding:8px 12px;border-radius:8px;display:inline-block}
+.msg.kev .text{background:rgba(232,184,74,0.1);border:1px solid rgba(232,184,74,0.15)}
+.msg.claire .text{background:rgba(124,196,245,0.1);border:1px solid rgba(124,196,245,0.15)}
+
+/* ── RIGHT PANEL ───────────────────────────── */
+#right{grid-area:right;display:flex;flex-direction:column;gap:1px;overflow-y:auto}
+
+/* Energy Gauge */
+#energy-panel{padding:14px;text-align:center;min-height:180px}
+#energy-arc{margin:0 auto 8px}
+#energy-value{font-size:28px;font-weight:700;font-variant-numeric:tabular-nums}
+#energy-label{font-size:11px;color:var(--dim);margin-top:2px}
+#energy-sparkline{width:100%;height:30px;margin-top:8px}
+#prosody-hint{font-size:10px;color:var(--dim);margin-top:6px;font-style:italic}
+
+/* Memory */
+#memory-panel{flex:1;overflow:hidden;display:flex;flex-direction:column}
+#memory-scroll{flex:1;overflow-y:auto;padding:8px 12px}
+.mem-entry{font-size:11px;padding:6px 8px;margin-bottom:4px;border-radius:6px;
+  background:var(--glass);border:1px solid var(--border)}
+.mem-entry .mem-action{font-size:9px;text-transform:uppercase;letter-spacing:1px;margin-bottom:2px}
+.mem-entry .mem-action.save{color:var(--accent2)}
+.mem-entry .mem-action.recall{color:var(--accent)}
+.mem-entry .mem-cat{color:var(--dim);font-size:9px}
+#memory-count{font-size:10px;color:var(--dim);padding:8px 12px;border-top:1px solid var(--border)}
+
+/* ── FOOTER ────────────────────────────────── */
+#footer{grid-area:foot;display:flex;align-items:center;justify-content:space-between;padding:0 16px;
+  background:rgba(10,10,15,0.9);border-top:1px solid var(--border);font-size:10px;color:var(--dim)}
+#session-info{display:flex;gap:16px}
+#export-btn{padding:4px 12px;border-radius:6px;background:var(--glass);border:1px solid var(--border);
+  color:var(--dim);cursor:pointer;font-family:var(--font);font-size:10px}
+#export-btn:hover{color:var(--text);border-color:var(--accent)}
+
+/* ── SCROLLBAR ─────────────────────────────── */
+::-webkit-scrollbar{width:4px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px}
+</style>
+</head>
+<body>
+
+<canvas id="shader-canvas"></canvas>
+
+<div id="app">
+  <!-- HEADER -->
+  <div id="header">
+    <div class="logo">CLAIRE <span>V2.5</span></div>
+    <div id="status-bar">
+      <span id="health-badge" style="padding:2px 8px;border-radius:8px;font-size:10px;border:1px solid var(--border);background:var(--glass)">—</span>
+      <span><span class="status-dot" id="conn-dot"></span><span id="conn-text">Getrennt</span></span>
+      <span id="latency-display">— ms</span>
+      <span id="model-display">—</span>
+    </div>
+  </div>
+
+  <!-- SIDEBAR -->
+  <div id="sidebar" class="panel">
+    <div class="panel-title">Stimme & Shader</div>
+    <div class="config-group">
+      <label>Voice</label>
+      <select id="voice-sel"></select>
+    </div>
+    <div class="config-group">
+      <label>Shader Background</label>
+    </div>
+    <div class="shader-pills" id="shader-pills"></div>
+    <div class="config-group">
+      <label>Shader Intensity</label>
+      <input type="range" id="shader-intensity" min="0" max="100" value="50">
+    </div>
+    <div class="config-group">
+      <label>Voice ↔ Shader Kopplung</label>
+      <input type="range" id="voice-coupling" min="0" max="100" value="0">
+    </div>
+    <div class="config-group">
+      <label>Accent Color</label>
+      <input type="color" id="accent-color" value="#7c6aef" style="width:100%;height:28px;border:1px solid var(--border);border-radius:6px;background:var(--glass);cursor:pointer">
+    </div>
+    <div class="panel-title">Persona Layers</div>
+    <div class="persona-layers">
+      <div class="layer"><span class="dot" style="background:#e74c3c"></span> L0 Identity Lock</div>
+      <div class="layer"><span class="dot" style="background:#e67e22"></span> L1 Persona Core</div>
+      <div class="layer"><span class="dot" style="background:#f1c40f"></span> L2 Lebensgeschichte</div>
+      <div class="layer"><span class="dot" style="background:#2ecc71"></span> L3 EmotionEngine (live)</div>
+      <div class="layer"><span class="dot" style="background:#3498db"></span> L4 Sprache</div>
+      <div class="layer"><span class="dot" style="background:#9b59b6"></span> L5 Narrative (live)</div>
+      <div class="layer"><span class="dot" style="background:#1abc9c"></span> L6 Memory Hygiene</div>
+    </div>
+  </div>
+
+  <!-- MAIN -->
+  <div id="main">
+    <div id="waveform-panel" class="panel">
+      <canvas id="waveform-canvas"></canvas>
+      <button id="call-btn">&#9743;</button>
+      <div id="duplex-indicator">HALF-DUPLEX</div>
+    </div>
+    <div id="transcript-panel" class="panel">
+      <div class="panel-title">Transcript</div>
+      <div id="transcript-scroll"></div>
+    </div>
+  </div>
+
+  <!-- RIGHT -->
+  <div id="right">
+    <div id="energy-panel" class="panel">
+      <div class="panel-title">EmotionEngine</div>
+      <canvas id="energy-arc" width="160" height="100"></canvas>
+      <div id="energy-value">0.65</div>
+      <div id="energy-label">Default</div>
+      <canvas id="energy-sparkline"></canvas>
+      <div id="prosody-hint">—</div>
+    </div>
+    <div id="memory-panel" class="panel">
+      <div class="panel-title">Memory</div>
+      <div id="memory-scroll"></div>
+      <div id="memory-count">0 Facts | SQLite</div>
+    </div>
+  </div>
+
+  <!-- FOOTER -->
+  <div id="footer">
+    <div id="session-info">
+      <span id="turn-count">0 Turns</span>
+      <span id="session-timer">00:00</span>
+    </div>
+    <button id="export-btn">Export Transcript</button>
+  </div>
+</div>
+
+<script>
+// ══════════════════════════════════════════════════════════════════════════════
+// SHADER ENGINE — 5 shaders with voice-reactive coupling
+// ══════════════════════════════════════════════════════════════════════════════
+
+const SHADER_VERT = `attribute vec2 p;void main(){gl_Position=vec4(p,0,1);}`;
+const SHADER_HEAD = `
+precision highp float;
+uniform float uTime,uDPR,uIntensity,uVoiceAmp;
+uniform vec2 uRes,uMouse;
+uniform vec3 uAccent;
+vec3 wpal(float t,vec3 a,vec3 b,vec3 c,vec3 d){return a+b*cos(6.28318*(c*t+d));}
+`;
+
+const SHADERS = {
+  lattice: SHADER_HEAD + `
+void main(){vec2 uv=(gl_FragCoord.xy-uRes*.5)/min(uRes.x,uRes.y);
+float t=uTime*.3;vec2 m=(uMouse-.5)*2.;uv+=m*.05;
+float d=0.;for(int i=0;i<5;i++){vec2 g=fract(uv*3.+t*.2)-.5;
+d+=1./(abs(length(g)-.3)+.02);}d*=.015;
+vec3 c=mix(uAccent*.5,uAccent*1.5,d)*uIntensity*(1.+uVoiceAmp*.8);
+gl_FragColor=vec4(c,1);}`,
+
+  flux: SHADER_HEAD + `
+void main(){vec2 uv=gl_FragCoord.xy/uRes;float t=uTime*.15;
+vec2 m=(uMouse-.5)*2.;float f=0.;
+for(int i=0;i<4;i++){float fi=float(i);
+uv=abs(uv*2.-1.+m*.04*sin(t+fi));f+=.5/abs(length(uv)-.4+sin(t+fi*.7)*.2);}
+vec3 c=wpal(f*.15+t,vec3(.5),vec3(.5),uAccent,vec3(0,.33,.67))*f*.08*uIntensity*(1.+uVoiceAmp);
+gl_FragColor=vec4(c,1);}`,
+
+  synapse: SHADER_HEAD + `
+void main(){vec2 uv=(gl_FragCoord.xy-uRes*.5)/min(uRes.x,uRes.y);
+float t=uTime*.25;vec2 m=(uMouse-.5)*2.;uv+=m*.03;
+float pulse=sin(t*2.+length(uv)*8.)*.5+.5;pulse=mix(pulse,1.,uVoiceAmp*.6);
+float d=0.;for(int i=0;i<6;i++){float fi=float(i);
+vec2 p=vec2(sin(t+fi*1.047),cos(t*.7+fi*1.047))*.6;
+d+=.02/(length(uv-p)+.01);}
+d+=.01/(length(uv-m*.3)+.01)*pulse;
+vec3 c=mix(uAccent*.3,uAccent*2.,d*.3)*uIntensity*(1.+uVoiceAmp*.5);
+gl_FragColor=vec4(c,1);}`,
+
+  warp: SHADER_HEAD + `
+void main(){vec2 uv=(gl_FragCoord.xy-uRes*.5)/min(uRes.x,uRes.y);
+float t=uTime*.2;vec2 m=(uMouse-.5)*2.;
+for(int i=0;i<3;i++){uv=abs(uv)/.9-1.+m*.02;uv*=mat2(cos(t*.3),sin(t*.3),-sin(t*.3),cos(t*.3));}
+float d=length(uv)*(1.+uVoiceAmp*.4);
+vec3 c=wpal(d*.5+t*.1,vec3(.5),vec3(.5),uAccent,vec3(0,.1,.2))*uIntensity;
+gl_FragColor=vec4(c*.6,1);}`,
+
+  stream: SHADER_HEAD + `
+void main(){vec2 uv=gl_FragCoord.xy/uRes;float t=uTime*.1;
+vec2 m=(uMouse-.5)*2.;uv.x+=m.x*.02;
+float s=0.;for(int i=0;i<8;i++){float fi=float(i);
+float y=sin(uv.x*6.+t*2.+fi*.8)*.1+fi*.12+.04;
+float w=.008+uVoiceAmp*.006;s+=w/abs(uv.y-y);}
+vec3 c=uAccent*s*.5*uIntensity*(1.+uVoiceAmp*.3);
+gl_FragColor=vec4(c,1);}`,
+};
+
+let shGL=null, shProg=null, shActive=null, shTime=0, shRAF=null;
+let shMouse=[0.5,0.5], shAccent=[0.486,0.416,0.937], shIntensity=0.5;
+let voiceAmp=0, voiceCoupling=0;
+
+function hexToGL(h){const r=parseInt(h.slice(1,3),16)/255,g=parseInt(h.slice(3,5),16)/255,b=parseInt(h.slice(5,7),16)/255;return[r,g,b]}
+
+function shInit(){
+  const c=document.getElementById('shader-canvas');
+  shGL=c.getContext('webgl',{alpha:true,premultipliedAlpha:false});
+  if(!shGL)return;
+  const buf=shGL.createBuffer();
+  shGL.bindBuffer(shGL.ARRAY_BUFFER,buf);
+  shGL.bufferData(shGL.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),shGL.STATIC_DRAW);
+  window.addEventListener('mousemove',e=>{shMouse=[e.clientX/innerWidth,1-e.clientY/innerHeight]});
+  shResize();
+  window.addEventListener('resize',shResize);
+}
+
+function shResize(){
+  const c=shGL.canvas,d=devicePixelRatio;
+  c.width=innerWidth*d;c.height=innerHeight*d;
+  shGL.viewport(0,0,c.width,c.height);
+}
+
+function shCompile(src,type){
+  const s=shGL.createShader(type);shGL.shaderSource(s,src);shGL.compileShader(s);
+  if(!shGL.getShaderParameter(s,shGL.COMPILE_STATUS)){console.error(shGL.getShaderInfoLog(s));return null}
+  return s;
+}
+
+function shStart(key){
+  if(!shGL)shInit();
+  if(!shGL||!SHADERS[key])return;
+  if(shRAF)cancelAnimationFrame(shRAF);
+  const vs=shCompile(SHADER_VERT,shGL.VERTEX_SHADER);
+  const fs=shCompile(SHADERS[key],shGL.FRAGMENT_SHADER);
+  if(!vs||!fs)return;
+  if(shProg)shGL.deleteProgram(shProg);
+  shProg=shGL.createProgram();
+  shGL.attachShader(shProg,vs);shGL.attachShader(shProg,fs);shGL.linkProgram(shProg);
+  shGL.useProgram(shProg);
+  const p=shGL.getAttribLocation(shProg,'p');
+  shGL.enableVertexAttribArray(p);shGL.vertexAttribPointer(p,2,shGL.FLOAT,false,0,0);
+  shActive=key;shTime=0;shRender();
+}
+
+function shStop(){if(shRAF){cancelAnimationFrame(shRAF);shRAF=null}shActive=null}
+
+function shRender(){
+  if(!shActive||!shProg)return;
+  shTime+=0.016;
+  const gl=shGL;gl.useProgram(shProg);
+  const d=devicePixelRatio;
+  gl.uniform2f(gl.getUniformLocation(shProg,'uRes'),gl.canvas.width,gl.canvas.height);
+  gl.uniform1f(gl.getUniformLocation(shProg,'uTime'),shTime);
+  gl.uniform1f(gl.getUniformLocation(shProg,'uDPR'),d);
+  gl.uniform2f(gl.getUniformLocation(shProg,'uMouse'),shMouse[0],shMouse[1]);
+  gl.uniform3f(gl.getUniformLocation(shProg,'uAccent'),shAccent[0],shAccent[1],shAccent[2]);
+  gl.uniform1f(gl.getUniformLocation(shProg,'uIntensity'),shIntensity);
+  gl.uniform1f(gl.getUniformLocation(shProg,'uVoiceAmp'),voiceAmp*voiceCoupling);
+  gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
+  shRAF=requestAnimationFrame(shRender);
+}
+
+
+// ══════════════════════════════════════════════════════════════════════════════
+// WAVEFORM VISUALIZER
+// ══════════════════════════════════════════════════════════════════════════════
+
+let wfCtx=null, wfW=0, wfH=0;
+let micAnalyser=null, spkAnalyser=null;
+
+function wfInit(){
+  const c=document.getElementById('waveform-canvas');
+  const r=c.getBoundingClientRect();
+  c.width=r.width*devicePixelRatio;c.height=r.height*devicePixelRatio;
+  wfW=c.width;wfH=c.height;
+  wfCtx=c.getContext('2d');wfCtx.scale(devicePixelRatio,devicePixelRatio);
+  wfW=r.width;wfH=r.height;
+}
+
+function wfDraw(){
+  if(!wfCtx)return;
+  wfCtx.clearRect(0,0,wfW,wfH);
+  const mid=wfH/2;
+
+  if(micAnalyser){
+    const buf=new Uint8Array(micAnalyser.frequencyBinCount);
+    micAnalyser.getByteTimeDomainData(buf);
+    wfCtx.strokeStyle='rgba(232,184,74,0.6)';wfCtx.lineWidth=1.5;
+    wfCtx.beginPath();
+    const step=wfW/buf.length;
+    let rms=0;
+    for(let i=0;i<buf.length;i++){
+      const v=(buf[i]-128)/128;rms+=v*v;
+      const y=mid+v*mid*0.8;
+      i===0?wfCtx.moveTo(0,y):wfCtx.lineTo(i*step,y);
+    }
+    wfCtx.stroke();
+    rms=Math.sqrt(rms/buf.length);
+    voiceAmp=voiceAmp*0.85+rms*0.15;
+  }
+
+  if(spkData.length>0){
+    wfCtx.strokeStyle='rgba(124,196,245,0.5)';wfCtx.lineWidth=1;
+    wfCtx.beginPath();
+    const step=wfW/spkData.length;
+    for(let i=0;i<spkData.length;i++){
+      const v=(spkData[i]-128)/128;
+      const y=mid+v*mid*0.6;
+      i===0?wfCtx.moveTo(0,y):wfCtx.lineTo(i*step,y);
+    }
+    wfCtx.stroke();
+  }
+
+  requestAnimationFrame(wfDraw);
+}
+let spkData=[];
+
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ENERGY GAUGE
+// ══════════════════════════════════════════════════════════════════════════════
+
+let energyHistory=[];
+const MAX_HISTORY=60;
+
+function drawEnergyArc(energy){
+  const c=document.getElementById('energy-arc');
+  const ctx=c.getContext('2d');
+  const w=c.width,h=c.height;
+  ctx.clearRect(0,0,w,h);
+
+  const cx=w/2,cy=h-5,r=70;
+  const startA=Math.PI,endA=0;
+
+  ctx.beginPath();ctx.arc(cx,cy,r,startA,endA);
+  ctx.strokeStyle='rgba(255,255,255,0.06)';ctx.lineWidth=8;ctx.lineCap='round';ctx.stroke();
+
+  const angle=startA+(endA-startA)*energy;
+  let color;
+  if(energy<0.3)color='#e74c3c';
+  else if(energy<0.5)color='#e67e22';
+  else if(energy<0.7)color='#f39c12';
+  else if(energy<0.85)color='#2ecc71';
+  else color='#7c6aef';
+
+  ctx.beginPath();ctx.arc(cx,cy,r,startA,angle);
+  ctx.strokeStyle=color;ctx.lineWidth=8;ctx.lineCap='round';ctx.stroke();
+
+  ctx.shadowBlur=12;ctx.shadowColor=color;
+  ctx.beginPath();ctx.arc(cx,cy,r,angle-0.02,angle);
+  ctx.strokeStyle=color;ctx.lineWidth=8;ctx.stroke();
+  ctx.shadowBlur=0;
+}
+
+function drawSparkline(){
+  const c=document.getElementById('energy-sparkline');
+  const r=c.parentElement.getBoundingClientRect();
+  c.width=(r.width-28)*devicePixelRatio;c.height=30*devicePixelRatio;
+  c.style.width=(r.width-28)+'px';c.style.height='30px';
+  const ctx=c.getContext('2d');ctx.scale(devicePixelRatio,devicePixelRatio);
+  const w=r.width-28,h=30;
+  ctx.clearRect(0,0,w,h);
+
+  if(energyHistory.length<2)return;
+  ctx.beginPath();
+  const step=w/(MAX_HISTORY-1);
+  for(let i=0;i<energyHistory.length;i++){
+    const x=i*step,y=h-(energyHistory[i]*h);
+    i===0?ctx.moveTo(x,y):ctx.lineTo(x,y);
+  }
+  ctx.strokeStyle='rgba(124,106,239,0.5)';ctx.lineWidth=1.5;ctx.stroke();
+
+  const last=energyHistory[energyHistory.length-1];
+  const lx=(energyHistory.length-1)*step,ly=h-(last*h);
+  ctx.beginPath();ctx.arc(lx,ly,3,0,Math.PI*2);
+  ctx.fillStyle='var(--accent)';ctx.fill();
+}
+
+function updateEnergy(energy, label){
+  document.getElementById('energy-value').textContent=energy.toFixed(2);
+  document.getElementById('energy-label').textContent=label;
+  drawEnergyArc(energy);
+  energyHistory.push(energy);
+  if(energyHistory.length>MAX_HISTORY)energyHistory.shift();
+  drawSparkline();
+
+  let hint='—';
+  if(energy<0.25)hint='Langsam, leise, mude...';
+  else if(energy<0.45)hint='Ruhig und entspannt';
+  else if(energy<0.75)hint='Naturlich und lebendig';
+  else if(energy<0.90)hint='Energisch, etwas schneller';
+  else hint='Sehr energisch, expressiv!';
+  document.getElementById('prosody-hint').textContent=hint;
+}
+
+
+// ══════════════════════════════════════════════════════════════════════════════
+// AUDIO ENGINE — Browser Mic → WebSocket → Gemini → Speaker
+// ══════════════════════════════════════════════════════════════════════════════
+
+let audioCtx=null, ws=null, micStream=null, micProcessor=null;
+let isConnected=false, spkQueue=[], isPlaying=false;
+const CHUNK=4096;
+
+async function startCall(){
+  if(isConnected){stopCall();return}
+
+  audioCtx=new AudioContext({sampleRate:16000});
+  let stream;
+  try{
+    stream=await navigator.mediaDevices.getUserMedia({audio:{sampleRate:{ideal:16000},channelCount:1,echoCancellation:true,noiseSuppression:true}});
+  }catch(err){
+    const scroll=document.getElementById('transcript-scroll');
+    scroll.innerHTML+=`<div style="color:#e74c3c;padding:8px;font-size:11px">Mic-Zugriff verweigert: ${escHTML(err.message)}</div>`;
+    audioCtx.close();audioCtx=null;return;
+  }
+  micStream=stream;
+
+  const src=audioCtx.createMediaStreamSource(stream);
+  micAnalyser=audioCtx.createAnalyser();micAnalyser.fftSize=2048;
+  src.connect(micAnalyser);
+
+  await audioCtx.audioWorklet.addModule(URL.createObjectURL(new Blob([`
+    class PCMProcessor extends AudioWorkletProcessor {
+      constructor(){super();this.buf=[];}
+      process(inputs){
+        const ch=inputs[0]?.[0];
+        if(!ch)return true;
+        for(let i=0;i<ch.length;i++){
+          const s=Math.max(-1,Math.min(1,ch[i]));
+          this.buf.push(s<0?s*32768:s*32767);
+        }
+        if(this.buf.length>=${CHUNK}){
+          const pcm=new Int16Array(this.buf.splice(0,${CHUNK}));
+          this.port.postMessage(pcm.buffer,[pcm.buffer]);
+        }
+        return true;
+      }
+    }
+    registerProcessor('pcm-proc',PCMProcessor);
+  `],{type:'application/javascript'})));
+
+  micProcessor=new AudioWorkletNode(audioCtx,'pcm-proc');
+  src.connect(micProcessor);
+  micProcessor.port.onmessage=e=>{
+    if(ws&&ws.readyState===1){
+      ws.send(e.data);
+    }
+  };
+
+  const proto=location.protocol==='https:'?'wss:':'ws:';
+  ws=new WebSocket(`${proto}//${location.host}/ws`);
+  ws.binaryType='arraybuffer';
+
+  ws.onopen=()=>{
+    isConnected=true;
+    document.getElementById('call-btn').classList.add('active');
+    document.getElementById('call-btn').innerHTML='&#9724;';
+    document.getElementById('conn-dot').classList.add('connected');
+    document.getElementById('conn-text').textContent='Verbunden';
+  };
+
+  ws.onmessage=e=>{
+    if(typeof e.data==='string'){
+      const msg=JSON.parse(e.data);
+      handleEvent(msg);
+    }
+  };
+
+  ws.onclose=()=>{stopCall()};
+  ws.onerror=()=>{stopCall()};
+}
+
+function stopCall(){
+  isConnected=false;
+  if(ws){ws.close();ws=null}
+  if(micStream){micStream.getTracks().forEach(t=>t.stop());micStream=null}
+  if(micProcessor){micProcessor.disconnect();micProcessor=null}
+  if(audioCtx){audioCtx.close();audioCtx=null}
+  if(spkCtx){spkCtx.close();spkCtx=null;spkNextTime=0}
+  micAnalyser=null;spkQueue=[];spkData=[];voiceAmp=0;
+  document.getElementById('call-btn').classList.remove('active');
+  document.getElementById('call-btn').innerHTML='&#9743;';
+  document.getElementById('conn-dot').classList.remove('connected');
+  document.getElementById('conn-text').textContent='Getrennt';
+}
+
+// Speaker playback at 24kHz — gapless queue
+let spkCtx=null, spkNextTime=0;
+function playSpeakerChunk(b64){
+  if(!spkCtx){spkCtx=new AudioContext({sampleRate:24000});spkNextTime=0}
+  const bytes=Uint8Array.from(atob(b64),c=>c.charCodeAt(0));
+  const pcm=new Int16Array(bytes.buffer);
+
+  spkData=new Uint8Array(pcm.length);
+  for(let i=0;i<pcm.length;i++)spkData[i]=Math.floor((pcm[i]/32768+1)*128);
+
+  const rms=Math.sqrt(pcm.reduce((s,v)=>s+(v/32768)**2,0)/pcm.length);
+  voiceAmp=voiceAmp*0.7+rms*0.3;
+
+  const buf=spkCtx.createBuffer(1,pcm.length,24000);
+  const ch=buf.getChannelData(0);
+  for(let i=0;i<pcm.length;i++)ch[i]=pcm[i]/32768;
+  const src=spkCtx.createBufferSource();src.buffer=buf;src.connect(spkCtx.destination);
+
+  const now=spkCtx.currentTime;
+  if(spkNextTime<now)spkNextTime=now;
+  src.start(spkNextTime);
+  spkNextTime+=buf.duration;
+}
+
+
+// ══════════════════════════════════════════════════════════════════════════════
+// EVENT HANDLER
+// ══════════════════════════════════════════════════════════════════════════════
+
+let transcriptParts={kev:'',claire:''};
+
+function handleEvent(msg){
+  switch(msg.type){
+    case 'init':
+      updateEnergy(msg.energy,msg.label);
+      document.getElementById('model-display').textContent=msg.model;
+      document.getElementById('memory-count').textContent=
+        `${msg.memoryCount} Facts | SQLite${msg.driveConnected?' + Drive':''}`;
+      if(msg.connectionMode==='airgap'){
+        document.getElementById('call-btn').title='Text Only (Airgap)';
+      }
+      break;
+
+    case 'status':
+      if(msg.connected){
+        document.getElementById('conn-dot').classList.add('connected');
+        document.getElementById('conn-text').textContent='Verbunden';
+      }else{
+        document.getElementById('conn-dot').classList.remove('connected');
+        document.getElementById('conn-text').textContent='Getrennt';
+      }
+      break;
+
+    case 'audio':
+      playSpeakerChunk(msg.data);
+      break;
+
+    case 'transcript':{
+      const scroll=document.getElementById('transcript-scroll');
+      const role=msg.role;
+      const lastMsg=scroll.querySelector(`.msg.${role}:last-child`);
+      if(lastMsg&&!lastMsg.dataset.done){
+        lastMsg.querySelector('.text').textContent+=msg.text;
+      }else{
+        const div=document.createElement('div');
+        div.className=`msg ${role}`;
+        div.innerHTML=`<div class="role">${role==='kev'?'Kev':'Claire'}</div><div class="text">${escHTML(msg.text)}</div>`;
+        scroll.appendChild(div);
+      }
+      if(msg.text.match(/[.!?]$/)){
+        const msgs=scroll.querySelectorAll(`.msg.${role}`);
+        if(msgs.length)msgs[msgs.length-1].dataset.done='1';
+      }
+      scroll.scrollTop=scroll.scrollHeight;
+
+      const di=document.getElementById('duplex-indicator');
+      const kevMsgs=scroll.querySelectorAll('.msg.kev:not([data-done])');
+      const claireMsgs=scroll.querySelectorAll('.msg.claire:not([data-done])');
+      if(kevMsgs.length&&claireMsgs.length){
+        di.textContent='FULL-DUPLEX';di.classList.add('active');
+      }else{
+        di.textContent='HALF-DUPLEX';di.classList.remove('active');
+      }
+      break;
+    }
+
+    case 'emotion':
+      updateEnergy(msg.energy,msg.label);
+      break;
+
+    case 'memory':{
+      const scroll=document.getElementById('memory-scroll');
+      const div=document.createElement('div');div.className='mem-entry';
+      if(msg.action==='save'){
+        div.innerHTML=`<div class="mem-action save">SAVE</div><div class="mem-cat">[${escHTML(msg.category)}]</div>${escHTML(msg.content)}`;
+      }else{
+        const count=msg.results?msg.results.length:0;
+        div.innerHTML=`<div class="mem-action recall">RECALL</div>"${escHTML(msg.query)}" → ${count} Treffer`;
+      }
+      scroll.appendChild(div);scroll.scrollTop=scroll.scrollHeight;
+      break;
+    }
+
+    case 'session':
+      document.getElementById('turn-count').textContent=msg.turns+' Turns';
+      const m=Math.floor(msg.elapsed/60),s=msg.elapsed%60;
+      document.getElementById('session-timer').textContent=
+        String(m).padStart(2,'0')+':'+String(s).padStart(2,'0');
+      break;
+
+    case 'session_end':{
+      const scroll3=document.getElementById('transcript-scroll');
+      const mm=Math.floor(msg.duration/60),ss=msg.duration%60;
+      const eDiff=(msg.energyEnd-msg.energyStart).toFixed(3);
+      const sign=parseFloat(eDiff)>=0?'+':'';
+      scroll3.innerHTML+=`<div style="padding:10px 12px;margin-top:8px;border-radius:8px;background:rgba(124,106,239,0.08);border:1px solid rgba(124,106,239,0.15);font-size:11px;color:var(--dim)">
+        <div style="font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--accent);margin-bottom:4px">Session beendet</div>
+        ${String(mm).padStart(2,'0')}:${String(ss).padStart(2,'0')} · ${msg.turns} Turns · ${msg.memorySaves} Saves · Energie ${sign}${eDiff}
+      </div>`;
+      scroll3.scrollTop=scroll3.scrollHeight;
+      break;
+    }
+
+    case 'error':
+      console.error('Server error:',msg.msg);
+      const scroll2=document.getElementById('transcript-scroll');
+      scroll2.innerHTML+=`<div style="color:#e74c3c;padding:8px;font-size:11px">Error: ${escHTML(msg.msg)}</div>`;
+      break;
+  }
+}
+
+function escHTML(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
+
+
+// ══════════════════════════════════════════════════════════════════════════════
+// INIT
+// ══════════════════════════════════════════════════════════════════════════════
+
+async function init(){
+  // Config
+  const cfg=await(await fetch('/api/config')).json();
+  const voiceSel=document.getElementById('voice-sel');
+  cfg.voices.forEach(v=>{
+    const o=document.createElement('option');o.value=v;o.textContent=v;
+    if(v===cfg.voice)o.selected=true;
+    voiceSel.appendChild(o);
+  });
+  document.getElementById('model-display').textContent=cfg.model;
+
+  // Shader pills
+  const pills=document.getElementById('shader-pills');
+  ['off','lattice','flux','synapse','warp','stream'].forEach(k=>{
+    const p=document.createElement('span');
+    p.className='shader-pill'+(k==='synapse'?' active':'');
+    p.textContent=k==='off'?'Off':k.charAt(0).toUpperCase()+k.slice(1);
+    p.onclick=()=>{
+      pills.querySelectorAll('.shader-pill').forEach(x=>x.classList.remove('active'));
+      p.classList.add('active');
+      if(k==='off')shStop();else shStart(k);
+    };
+    pills.appendChild(p);
+  });
+
+  // Shader controls
+  document.getElementById('shader-intensity').oninput=e=>{
+    shIntensity=e.target.value/100;
+    document.getElementById('shader-canvas').style.opacity=Math.max(0.1,shIntensity);
+  };
+  document.getElementById('voice-coupling').oninput=e=>{voiceCoupling=e.target.value/100};
+  document.getElementById('accent-color').oninput=e=>{
+    shAccent=hexToGL(e.target.value);
+    document.documentElement.style.setProperty('--accent',e.target.value);
+  };
+
+  // Call button
+  document.getElementById('call-btn').onclick=startCall;
+
+  // Export
+  document.getElementById('export-btn').onclick=()=>{
+    const msgs=document.querySelectorAll('#transcript-scroll .msg');
+    let txt='';msgs.forEach(m=>{
+      const role=m.classList.contains('kev')?'Kev':'Claire';
+      txt+=role+': '+m.querySelector('.text').textContent+'\n';
+    });
+    const blob=new Blob([txt],{type:'text/plain'});
+    const a=document.createElement('a');a.href=URL.createObjectURL(blob);
+    a.download=`claire-transcript-${new Date().toISOString().slice(0,16)}.txt`;a.click();
+  };
+
+  // Health badge
+  try{
+    const health=await(await fetch('/api/health')).json();
+    const badge=document.getElementById('health-badge');
+    if(health.gemini){
+      badge.textContent=`Gemini | SQLite${health.driveConnected?' + Drive':''}`;
+      badge.style.color='var(--energy-high)';badge.style.borderColor='rgba(46,204,113,0.3)';
+    }else if(health.lmStudio){
+      badge.textContent='LM Studio | SQLite';
+      badge.style.color='var(--energy-mid)';badge.style.borderColor='rgba(243,156,18,0.3)';
+    }else{
+      badge.textContent='Offline';
+      badge.style.color='var(--energy-low)';badge.style.borderColor='rgba(231,76,60,0.3)';
+    }
+  }catch(e){console.warn('Health fetch failed:',e)}
+
+  // Memory preload
+  try{
+    const mem=await(await fetch('/api/memory')).json();
+    document.getElementById('memory-count').textContent=
+      `${mem.factCount} Facts | SQLite${mem.driveConnected?' + Drive':''}`;
+    const scroll=document.getElementById('memory-scroll');
+    const cats=Object.entries(mem.categories);
+    if(cats.length){
+      cats.forEach(([cat,facts])=>{
+        const top3=facts.slice(0,3);
+        top3.forEach(f=>{
+          const div=document.createElement('div');div.className='mem-entry';
+          div.innerHTML=`<div class="mem-cat">[${escHTML(cat)}]</div>${escHTML(f.content)}`;
+          div.style.opacity='0.6';
+          scroll.appendChild(div);
+        });
+      });
+    }
+  }catch(e){console.warn('Memory preload failed:',e)}
+
+  // beforeunload — graceful WebSocket close (Tauri-ready)
+  window.addEventListener('beforeunload',()=>{
+    if(ws&&ws.readyState===1)ws.close(1000,'page_unload');
+    if(micStream)micStream.getTracks().forEach(t=>t.stop());
+    if(spkCtx)spkCtx.close();
+    if(audioCtx)audioCtx.close();
+  });
+
+  // Init visuals
+  shInit();
+  shStart('synapse');
+  wfInit();
+  wfDraw();
+  drawEnergyArc(0.65);
+  drawSparkline();
+}
+
+init();
+</script>
+</body>
+</html>

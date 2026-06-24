@@ -16,7 +16,18 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from google import genai
+from google.genai import _common as _genai_common
 import pyaudio
+
+# SDK bug (google-genai 2.9 + Python 3.15): enums serialize as
+# "Modality.AUDIO" instead of "AUDIO" in Live API websocket setup.
+_orig_convert = _genai_common.convert_to_dict
+def _patched_convert(obj, convert_keys=False):
+    import enum as _enum
+    if isinstance(obj, _enum.Enum):
+        return obj.value
+    return _orig_convert(obj, convert_keys)
+_genai_common.convert_to_dict = _patched_convert
 
 from persona import (
     CLAIRE_PERSONA_OS,
@@ -166,18 +177,18 @@ async def run():
     client = genai.Client()
     pya = pyaudio.PyAudio()
 
-    config = {
-        "response_modalities": ["AUDIO"],
-        "system_instruction": system_prompt,
-        "speech_config": {
-            "voice_config": {
-                "prebuilt_voice_config": {"voice_name": VOICE}
-            }
-        },
-        "output_audio_transcription": {},
-        "input_audio_transcription": {},
-        "tools": TOOLS,
-    }
+    config = genai.types.LiveConnectConfig(
+        response_modalities=["AUDIO"],
+        system_instruction=system_prompt,
+        speech_config=genai.types.SpeechConfig(
+            voice_config=genai.types.VoiceConfig(
+                prebuilt_voice_config=genai.types.PrebuiltVoiceConfig(voice_name=VOICE)
+            )
+        ),
+        output_audio_transcription=genai.types.AudioTranscriptionConfig(),
+        input_audio_transcription=genai.types.AudioTranscriptionConfig(),
+        tools=TOOLS,
+    )
 
     audio_out_queue = asyncio.Queue()
     audio_mic_queue = asyncio.Queue(maxsize=5)
@@ -217,7 +228,7 @@ async def run():
                             r = await handle_tool_call(call, ego)
                             responses.append(r)
                         if responses:
-                            await session.send_tool_response(responses)
+                            await session.send_tool_response(function_responses=responses)
                     continue
 
                 if sc.model_turn:
