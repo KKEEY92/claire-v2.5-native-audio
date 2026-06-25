@@ -35,18 +35,25 @@ export default function App() {
   return (
     <div className="relative w-screen h-dvh overflow-hidden bg-[#08080f]">
       <MoodGlow />
-      <nav className="absolute top-4 left-1/2 -translate-x-1/2 z-50 glass rounded-full px-4 py-2 flex gap-6">
-        {(['call', 'auratone', 'analytics', 'monitor'] as AppView[]).map((v) => (
-          <button
-            key={v}
-            type="button"
-            onClick={() => setView(v)}
-            className="text-xs font-mono tracking-widest uppercase cursor-pointer transition-colors"
-            style={{ color: view === v ? 'var(--energy-color)' : '#64748b' }}
-          >
-            {v === 'call' ? '📞 CALL' : v === 'auratone' ? '🎛️ AURA' : v === 'analytics' ? '📊 DATA' : '🖥️ LIVE'}
-          </button>
-        ))}
+      <nav className="absolute top-0 left-0 right-0 z-50 safe-top">
+        <div className="flex justify-center px-3 pt-2 pb-1">
+          <div className="glass rounded-full px-3 py-1.5 flex gap-1 sm:gap-4">
+            {(['call', 'auratone', 'analytics', 'monitor'] as AppView[]).map((v) => (
+              <button
+                key={v}
+                type="button"
+                onClick={() => setView(v)}
+                className="text-[10px] sm:text-xs font-mono tracking-wider sm:tracking-widest uppercase cursor-pointer transition-colors px-2 py-1.5 rounded-full min-w-[44px] min-h-[44px] flex items-center justify-center"
+                style={{
+                  color: view === v ? 'var(--energy-color)' : '#64748b',
+                  background: view === v ? 'rgba(168,85,247,0.1)' : 'transparent',
+                }}
+              >
+                {v === 'call' ? 'CALL' : v === 'auratone' ? 'AURA' : v === 'analytics' ? 'DATA' : 'LIVE'}
+              </button>
+            ))}
+          </div>
+        </div>
       </nav>
       <main className="relative z-10 w-full h-full">
         {view === 'call' && (
@@ -61,7 +68,7 @@ export default function App() {
           <button
             type="button"
             onClick={handleStartCall}
-            className="px-8 py-4 rounded-full font-mono text-sm tracking-widest border cursor-pointer hover:bg-purple-500/20 transition-colors"
+            className="px-8 py-4 rounded-full font-mono text-sm tracking-widest border cursor-pointer hover:bg-purple-500/20 transition-colors min-h-[48px]"
             style={{
               background: 'rgba(168,85,247,0.1)',
               borderColor: 'rgba(168,85,247,0.4)',
