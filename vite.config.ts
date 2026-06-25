@@ -4,7 +4,10 @@ import { VitePWA } from 'vite-plugin-pwa';
 import tailwindcss from '@tailwindcss/vite';
 import path from 'path';
 
+const base = process.env.GITHUB_PAGES ? '/claire-v2.5-native-audio/' : '/';
+
 export default defineConfig({
+  base,
   plugins: [
     react(),
     tailwindcss(),
@@ -18,11 +21,11 @@ export default defineConfig({
         background_color: '#08080f',
         display: 'standalone',
         orientation: 'portrait',
-        start_url: '/',
+        start_url: base,
         icons: [
-          { src: '/icon-192.png', sizes: '192x192', type: 'image/png' },
-          { src: '/icon-512.png', sizes: '512x512', type: 'image/png' },
-          { src: '/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+          { src: `${base}icon-192.png`, sizes: '192x192', type: 'image/png' },
+          { src: `${base}icon-512.png`, sizes: '512x512', type: 'image/png' },
+          { src: `${base}icon-512.png`, sizes: '512x512', type: 'image/png', purpose: 'maskable' },
         ],
       },
       workbox: {
