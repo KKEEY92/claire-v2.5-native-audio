@@ -98,7 +98,7 @@ export function PhoneCallScreen({
   };
 
   return (
-    <div className="w-full h-full flex flex-col items-center justify-center gap-12 relative z-10">
+    <div className="w-full h-full flex flex-col items-center justify-center gap-6 sm:gap-12 relative z-10 safe-bottom px-4">
       <div className="text-center">
         <h2 className="text-2xl font-light tracking-[0.2em] uppercase text-white/80">Claire</h2>
         <p
