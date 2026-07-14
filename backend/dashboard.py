@@ -103,7 +103,7 @@ def _build_system_prompt(mem_ctx: MemoryContext, ego: EgoState) -> str:
     
     prompt_parts = [
         CLAIRE_PERSONA_OS,
-        build_layer3(EgoState(energy=effective_energy, valence=ego.valence, arousal=ego.arousal)),
+        build_layer3(EgoState(energy=effective_energy)),
         build_layer5(daily, now, reunion),
         f"# WAS ICH ÜBER KEV WEISS (Memory)\n{mem_ctx.to_prompt_string()}",
         f"# PROSODIE\n{prosody}",
@@ -117,7 +117,14 @@ def _build_system_prompt(mem_ctx: MemoryContext, ego: EgoState) -> str:
             "- Hilf ihm, einen konkreten Wenn-Dann-Plan (Plan) zu formulieren.\n"
             "- Stelle offene, reflektierende Fragen und gib keine schnellen Lösungen vor."
         )
-        
+    prompt_parts.append(
+        "# WICHTIGE DIALOG-KONVENTIONEN\n"
+        "- Du sprichst AUSSCHLIESSLICH Deutsch (natürlich, locker, direkt, Frankfurter Slang ohne Übertreibung).\n"
+        "- Antworte immer auf Deutsch.\n"
+        "- Gib NIEMALS interne Anweisungen, Meta-Beschreibungen, Formatierungen oder gedankliche Überschriften (wie '**Anchoring the Situation**' oder ähnlich) aus.\n"
+        "- Antworte direkt als Claire, sprich als echter Mensch ohne System-Aura."
+    )
+    
     return "\n\n".join(prompt_parts)
 
 

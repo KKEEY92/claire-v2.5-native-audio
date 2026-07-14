@@ -91,6 +91,11 @@ def _build_system_prompt(mem_ctx: MemoryContext, ego: EgoState) -> str:
         build_layer5(daily, now, reunion),
         f"# WAS ICH ÜBER KEV WEISS (Memory)\n{mem_ctx.to_prompt_string()}",
         f"# PROSODIE\n{prosody}",
+        "# WICHTIGE DIALOG-KONVENTIONEN\n"
+        "- Du sprichst AUSSCHLIESSLICH Deutsch (natürlich, locker, direkt, Frankfurter Slang ohne Übertreibung).\n"
+        "- Antworte immer auf Deutsch.\n"
+        "- Gib NIEMALS interne Anweisungen, Meta-Beschreibungen, Formatierungen oder gedankliche Überschriften (wie '**Anchoring the Situation**' oder ähnlich) aus.\n"
+        "- Antworte direkt als Claire, sprich als echter Mensch ohne System-Aura."
     ])
 
 
