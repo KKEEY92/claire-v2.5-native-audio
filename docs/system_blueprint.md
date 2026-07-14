@@ -1,6 +1,6 @@
 # 🌌 System-Blueprint & KKI Master-Akte
 
-Diese Datei dient als **Single-Source-of-Truth** (Backup-Protokoll und Master-Akte) für das `claire-v2.5-native-audio` System. 
+Diese Datei dient als **Single-Source-of-Truth** (Backup-Protokoll und Master-Akte) für das `claire-v2.5-native-audio` System.
 Jeder KI-Agent, der in die Entwicklung oder Modifikation dieses Systems einsteigt, **MUSS** diese Datei lesen, um Kontext, Abhängigkeiten und Architektur-Richtlinien zu verstehen.
 
 ---
@@ -16,7 +16,6 @@ Das System folgt einem strikten Monorepo-Ansatz, in dem native Edge-Clients (mac
 - **Masterakte (`data/personas/`):** JSON/Markdown basierter Langzeitspeicher. Das Dashboard extrahiert automatisch relevanten Kontext aus Rohtexten und verankert ihn hier.
 - **Native Clients (`apps-workspace/`):** Entwickelt mit Swift 5 & SwiftUI in Xcode 27. Beinhaltet zwei Targets (`ClairemacOS` und `ClaireiOS`) innerhalb des `Claire.xcworkspace`.
 
-
 ---
 
 ## 2. Abhängigkeiten (Dependency Tree)
@@ -31,7 +30,6 @@ Das System folgt einem strikten Monorepo-Ansatz, in dem native Edge-Clients (mac
 - `jinja2` (Templating für das Dashboard)
 - `python-multipart` (File-Uploads und Export/Import)
 
-
 ### 🍏 Native Clients (Xcode)
 
 - `Xcode 27.0 Beta` (oder neuer)
@@ -39,7 +37,6 @@ Das System folgt einem strikten Monorepo-Ansatz, in dem native Edge-Clients (mac
 - `macOS 14.0+` Deployment Target (MenuBar App, Agentic Control)
 - `iOS 16.0+` Deployment Target (Mobile Agent Access)
 - *Geplant:* `LiveKit iOS SDK` via Swift Package Manager für direkte WebRTC Audio-Streams ohne WebView.
-
 
 ---
 

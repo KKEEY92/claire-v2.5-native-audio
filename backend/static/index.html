@@ -2045,6 +2045,9 @@ async function init(){
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ voice: e.target.value })
     });
+    if (window.ws && window.ws.readyState === WebSocket.OPEN) {
+      window.ws.send(JSON.stringify({ type: 'voice_change', voice: e.target.value }));
+    }
   };
 
   // Shader pills

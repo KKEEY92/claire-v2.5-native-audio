@@ -189,6 +189,14 @@ async def get_config():
         "sampleRateOut": RECEIVE_SAMPLE_RATE,
     })
 
+@app.post("/api/config")
+async def post_config(data: dict):
+    global VOICE
+    new_voice = data.get("voice")
+    if new_voice in VOICES:
+        VOICE = new_voice
+    return JSONResponse({"status": "ok", "voice": VOICE})
+
 
 @app.get("/api/health")
 async def get_health():
@@ -541,7 +549,7 @@ async def ws_endpoint(ws: WebSocket):
     # Check if custom TTS is requested (Kokoro or ElevenLabs) and handle fallbacks
     use_custom_tts = False
     if voice.startswith("Kokoro"):
-        if not kokoro_tts.is_available():
+        if not kokoro_tts.HAS_KOKORO:
             await send_event("error", {
                 "msg": "Lokales Kokoro-TTS ist auf diesem System nicht installiert. Verwende automatischen Fallback auf Gemini Neural Voice (Aoede)."
             })
