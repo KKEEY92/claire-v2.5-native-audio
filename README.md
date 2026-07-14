@@ -1,155 +1,99 @@
-<div align="center">
+# 🌌 Claire V2.5 – Next-Gen Conversational AI Monorepo
 
-<img src="https://img.shields.io/badge/Claire-V2.5_Native_Audio-blueviolet?style=for-the-badge&logo=googlecloud&logoColor=white" alt="Claire V2.5"/>
-<img src="https://img.shields.io/badge/Gemini-Native_Audio-4285F4?style=for-the-badge&logo=google&logoColor=white" alt="Gemini Native Audio"/>
-<img src="https://img.shields.io/badge/Full_Duplex-200ms-00C853?style=for-the-badge" alt="Full Duplex"/>
-<img src="https://img.shields.io/badge/EmotionEngine-v2-FF6D00?style=for-the-badge" alt="EmotionEngine"/>
-<img src="https://img.shields.io/badge/Memory-SQLite_+_Drive-7C4DFF?style=for-the-badge" alt="Memory"/>
+Willkommen im hochmodernen **Claire V2.5** Repository. Dieses Monorepo vereint die mächtige, echtzeitfähige Python-Backend-Infrastruktur mit den nativen, extrem performanten Apple-Clients (macOS & iOS) in einer harmonischen, agentischen Architektur.
 
-<br/><br/>
-
-**Standalone upgrade von [Claire V2](https://github.com/KKEEY92/claire-v2).**<br/>
-Gemini Native Audio ersetzt die komplette STT→LLM→TTS Pipeline.<br/>
-Lokales Voice Agent Cockpit mit WebGL-Shader-Engine, EmotionEngine-Gauge und persistenter SQLite-Memory.
-
-</div>
+Dieses System wurde für **maximale Kognition, minimale Latenz und native Integration** entworfen.
 
 ---
 
-## Was ist anders als V2?
+## 🚀 Vision & Architektur
 
-| | Claire V2 | Claire V2.5 (Native Audio) |
-|---|---|---|
-| **Architektur** | Google STT → Gemini LLM → Google TTS (Chirp3-HD) | Gemini Native Audio (alles in einem) |
-| **Latenz** | ~800ms (3 API-Calls) | ~200ms (1 Session) |
-| **Duplex** | Half-Duplex (abwechselnd) | **Full-Duplex** (gleichzeitig hören + sprechen) |
-| **Infrastruktur** | LiveKit + Cloud Run + Docker | **`python launcher.py`** |
-| **UI** | — | Voice Agent Cockpit (WebGL Shaders, Waveform, EmotionEngine) |
-| **Memory** | Google Drive only | **SQLite-Primary** + Drive als Backup |
-| **Start** | npm + Docker + Token-Server | Doppelklick Desktop-Launcher |
-| **Stimme** | Google TTS Chirp3-HD | Gemini Neural Voices (Aoede, Kore, etc.) |
-| **Prosodie** | TTS-Parameter (rate, gain) | Prompt-gesteuert (natürlicher) |
+Claire ist nicht einfach nur ein Chatbot – sie ist eine vollständig integrierte **Conversational AI Person**. Sie nutzt eine Obsidian-ähnliche Masterakte als Langzeitgedächtnis, analysiert neuen Kontext automatisch und spricht auf Deutsch mit lebensechter Stimmmodulation (inklusive Emotionen und Lachen über LiveKit & ElevenLabs/Cartesia).
 
-## Was gleich geblieben ist
+Das Projekt ist als **Monorepo** strukturiert, das Backend und Frontend sauber trennt, aber sofort einsatzbereit koppelt.
 
-- **KKI Persona OS v1.0** — 7-Layer Identity Framework (`persona.py`)
-- **EmotionEngine v2** — Energie-Tracking, zirkadiane Rhythmen, Prosodie-Steuerung
-- **Tools** — `save_memory`, `recall_memory` mit Embedding-basierter Suche
+### 📁 Verzeichnisstruktur
 
-## Quickstart
+```text
+claire-v2.5-native-audio/
+│
+├── backend/                  # 🧠 Python KI-Backend & LiveKit WebRTC Server
+│   ├── claire.py             # Haupt-Agent (Voice, Vision, Context)
+│   ├── dashboard.py          # FastAPI & Socket.IO Dashboard-Server
+│   ├── persona.py            # Obsidian-Style Persona Manager & Masterakte-Extraktor
+│   └── static/               # Frontend Dashboard (HTML/JS/CSS)
+│
+├── apps-workspace/           # 🍏 Native Apple Clients (Xcode 27)
+│   ├── Claire.xcworkspace    # Gemeinsamer Workspace für iOS & macOS
+│   ├── ClairemacOS/          # Native macOS MenuBar App (SwiftUI)
+│   └── ClaireiOS/            # Native iOS App (SwiftUI)
+│
+├── docs/                     # 📚 System-Blaupausen & Architektur-Dokumentation
+│   └── system_blueprint.md   # WICHTIG: Die Master-Referenz für KI-Agenten
+│
+├── assets/                   # 🖼️ Icons, Logos, Persona-Bilder
+├── data/                     # 💾 Lokale Speicher für Kontexte, Erinnerungen & Logs
+└── scripts/                  # 🛠️ Nützliche Scripte (Start-Scripte, Utils)
+```
+
+---
+
+## 🛠️ Tech Stack & Dependencies
+
+- **Backend:** Python 3.12+, FastAPI, LiveKit Agents Framework, OpenAI (GPT-4o), ElevenLabs (TTS), asyncio.
+- **Frontend (Dashboard):** HTML5, Vanilla JS, Tailwind CSS, Socket.IO.
+- **Native Clients:** Swift 5+, SwiftUI, Xcode 27+, LiveKit Swift SDK (geplant).
+- **Datenhaltung:** JSON/Markdown basierte lokale "Masterakte" (Obsidian-Style) für Personas und Erinnerungen.
+
+---
+
+## 🏁 Quick Start
+
+### 1️⃣ Backend Starten
+
+Das Backend erfordert LiveKit Keys und API Keys. Stelle sicher, dass du in deiner Umgebungsvariable oder `.env` Datei alle nötigen Keys gesetzt hast.
 
 ```bash
-# 1. Clone
-git clone https://github.com/KKEEY92/claire-v2.5-native-audio.git
-cd claire-v2.5-native-audio
+cd backend
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt # (Stelle sicher, dass requirements installiert sind)
 
-# 2. Venv + Dependencies
-python3 -m venv .venv
-.venv/bin/pip install -r requirements-native.txt
+# Starte den KI-Agenten:
+python3 claire.py start
 
-# 3. API Key (https://aistudio.google.com/apikey)
-cp .env.native.example .env
-# → GOOGLE_API_KEY eintragen
-
-# 4. Dashboard starten
-.venv/bin/python launcher.py
-# → öffnet http://localhost:8550 automatisch
+# Starte in einem separaten Terminal das Control-Dashboard:
+python3 dashboard.py
 ```
 
-Alternativ: CLI-only ohne Dashboard:
+Das Dashboard erreichst du nun unter: `http://localhost:8000`
+
+### 2️⃣ Native Apps Starten (macOS / iOS)
+
+Öffne den Workspace in Xcode:
+
 ```bash
-.venv/bin/python claire.py
+open apps-workspace/Claire.xcworkspace
 ```
 
-## Architektur
+1. Wähle das Target `ClairemacOS` oder `ClaireiOS`.
+2. Klicke auf **Run** (⌘ + R).
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│  launcher.py (Entry Point)                                      │
-│  Port 8550 · Preflight: Gemini/LM Studio/Claire_Mix Probes      │
-│                                                                  │
-│  ┌────────────────────────────────────────────────────────────┐  │
-│  │  dashboard.py (FastAPI)                                    │  │
-│  │  GET /api/health · /api/memory · /api/sessions · /api/config│  │
-│  │  WS  /ws (Audio Bridge)                                    │  │
-│  └─────────────┬──────────────────────────────────────────────┘  │
-│                │                                                  │
-│  ┌─────────────▼──────────────────────────────────────────────┐  │
-│  │  Browser Dashboard (static/index.html)                     │  │
-│  │  • WebGL Shader Engine (5 Shaders, voice-reactive)         │  │
-│  │  • Waveform Visualizer (Mic + Speaker, dual-channel)       │  │
-│  │  • EmotionEngine Gauge + Sparkline                         │  │
-│  │  • Live Transcript + Memory Panel                          │  │
-│  │  • Health Badge (Gemini/LM Studio/Offline)                 │  │
-│  │  • AudioWorklet → WebSocket → Gemini ← base64 Audio       │  │
-│  └─────────────┬──────────────────────────────────────────────┘  │
-│                │                                                  │
-│  ┌─────────────▼───────────┐  ┌───────────────────────────────┐  │
-│  │  Gemini 2.5 Flash       │  │  memory.py (SQLite-Primary)   │  │
-│  │  Native Audio           │  │  ~/.claire_memory/claire.db   │  │
-│  │  • Full-Duplex          │  │  • Facts, EgoState, Sessions  │  │
-│  │  • Tool Calling         │  │  • Drive Backup (async)       │  │
-│  │  • Persona + Prosodie   │  │  • Vertex AI Embeddings       │  │
-│  └─────────────────────────┘  └───────────────────────────────┘  │
-└─────────────────────────────────────────────────────────────────┘
-```
+---
 
-## API Endpoints
+## 🧠 Das Control Dashboard
 
-| Endpoint | Beschreibung |
-|----------|-------------|
-| `GET /` | Dashboard UI |
-| `GET /api/config` | Modell, Voice, Sample Rates |
-| `GET /api/health` | Gemini, LM Studio, SQLite, Drive, Claire_Mix Status |
-| `GET /api/memory` | Facts gruppiert nach Kategorie |
-| `GET /api/sessions` | Session-History (Dauer, Turns, Saves, Energie) |
-| `WS /ws` | Bidirektionale Audio-Bridge (Browser ↔ Gemini) |
+Das Control Dashboard ist dein Command Center für Claire. Es bietet:
+- **Obsidian Persona Archiv:** Lege Charakterzüge, Erinnerungen und Hintergrundgeschichten in einem strukturierten Markdown-Format an.
+- **Context Extractor:** Füge Rohtexte ein. Das System extrahiert automatisch wichtiges Wissen und fügt es in die Masterakte der jeweiligen Persona ein.
+- **Voice & TTS Controls:** Passe Claires Stimme (z.B. Emotion, Geschwindigkeit) in Echtzeit an.
+- **Recording & Export:** Schneide Gespräche mit und exportiere Logs zur späteren Analyse.
 
-## Konfiguration (.env)
+---
 
-```env
-# Gemini API Key (kostenlos: aistudio.google.com/apikey)
-GOOGLE_API_KEY=...
+## 📜 Agentic Blueprint
 
-# Modell
-CLAIRE_MODEL=gemini-2.5-flash-native-audio-latest
+Dieses Repository wurde in Zusammenarbeit mit **Antigravity** (Agentic AI) erstellt.  
+Wenn ein zukünftiger KI-Agent dieses System erweitern soll, weise ihn an, die Datei `docs/system_blueprint.md` zu lesen. Sie enthält alle Systemabhängigkeiten, Design-Philosophien und Protokolle.
 
-# Stimme: Aoede (Default), Kore, Puck, Charon, Fenrir
-CLAIRE_VOICE=Aoede
-
-# Google Cloud (optional, für Memory-Embeddings)
-GOOGLE_CLOUD_PROJECT=your-project-id
-GOOGLE_CLOUD_LOCATION=europe-west3
-
-# Google Drive Backup (optional)
-GDRIVE_MEMORY_FOLDER_ID=...
-```
-
-## Dateien
-
-| Datei | Beschreibung |
-|-------|-------------|
-| `launcher.py` | Entry Point: Preflight-Checks → Dashboard → Browser |
-| `dashboard.py` | FastAPI Backend: API + WebSocket Audio Bridge |
-| `static/index.html` | Voice Agent Cockpit (WebGL, Waveform, EmotionEngine) |
-| `claire.py` | Standalone CLI Agent (ohne Dashboard) |
-| `memory.py` | SQLite-Primary Memory + Drive Backup |
-| `persona.py` | KKI Persona OS v1.0 (7 Layers) |
-| `agent.py` | Original V2 LiveKit Agent (Referenz) |
-
-## Desktop-Start (macOS)
-
-`~/Desktop/Claire V2.5.command` — Doppelklick öffnet Terminal + Dashboard.
-
-## Verwandte Repos
-
-| Repo | Beschreibung |
-|------|-------------|
-| [claire-v2](https://github.com/KKEEY92/claire-v2) | Original mit LiveKit Pipeline |
-| [Claire-V2-Architecture](https://github.com/KKEEY92/Claire-V2-Architecture) | Architektur-Dokumentation |
-| [Aria](https://github.com/KKEEY92/Aria---Your-AI-Companion) | AI Companion mit Gemini Native Audio (React) |
-| **claire-v2.5-native-audio** | ← dieses Repo |
-
-## Lizenz
-
-MIT
+*“Built with 🧠 and ⚡️ by KKI Systems & Antigravity”*
