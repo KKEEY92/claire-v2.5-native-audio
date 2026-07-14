@@ -747,6 +747,7 @@ async def ws_endpoint(ws: WebSocket):
                         elif data.get("type") == "voice_change":
                             voice = data.get("voice", VOICE)
                             await send_event("info", {"msg": f"Voice-Wechsel erfordert Neuverbindung → {voice}"})
+                            break  # Erzwinge Disconnect, damit der Nutzer neu startet
                     elif isinstance(raw, bytes):
                         await session.send_realtime_input(
                             audio={"data": raw, "mime_type": "audio/pcm"}

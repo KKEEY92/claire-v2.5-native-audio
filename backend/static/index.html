@@ -1691,6 +1691,13 @@ function handleEvent(msg){
       break;
     }
 
+    case 'info':
+      console.info('Server info:', msg.msg);
+      const scrollInfo = document.getElementById('transcript-scroll');
+      scrollInfo.innerHTML += `<div style="color:var(--kkeey-cyan-core);padding:8px;font-size:11px">Info: ${escHTML(msg.msg)}</div>`;
+      scrollInfo.scrollTop = scrollInfo.scrollHeight;
+      break;
+
     case 'error':
       console.error('Server error:',msg.msg);
       const scroll2=document.getElementById('transcript-scroll');
