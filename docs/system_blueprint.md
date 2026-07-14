@@ -9,17 +9,20 @@ Jeder KI-Agent, der in die Entwicklung oder Modifikation dieses Systems einsteig
 
 Das System folgt einem strikten Monorepo-Ansatz, in dem native Edge-Clients (macOS/iOS) mit einem asynchronen Python-Core (Backend) gekoppelt werden.
 
-### Komponenten:
+### Komponenten
+
 - **Core AI Agent (`backend/claire.py`):** Behandelt Echtzeit-Audio und Video via LiveKit. Nutzt LLMs (GPT-4o) und High-Fidelity TTS (z.B. ElevenLabs, Cartesia) für lebensechte, akzentfreie, emotionale Konversationen (inkl. Lachen).
 - **Control Dashboard (`backend/dashboard.py`):** FastAPI-App mit Websockets. Bietet UI für Persona-Management (Obsidian-Style), Context-Extraction und Agenten-Steuerung.
 - **Masterakte (`data/personas/`):** JSON/Markdown basierter Langzeitspeicher. Das Dashboard extrahiert automatisch relevanten Kontext aus Rohtexten und verankert ihn hier.
 - **Native Clients (`apps-workspace/`):** Entwickelt mit Swift 5 & SwiftUI in Xcode 27. Beinhaltet zwei Targets (`ClairemacOS` und `ClaireiOS`) innerhalb des `Claire.xcworkspace`.
+
 
 ---
 
 ## 2. Abhängigkeiten (Dependency Tree)
 
 ### 🐍 Python Backend
+
 - `Python 3.12+`
 - `fastapi`, `uvicorn` (Dashboard Server)
 - `livekit-agents`, `livekit-api` (Echtzeit Audio/Video WebRTC)
@@ -28,12 +31,15 @@ Das System folgt einem strikten Monorepo-Ansatz, in dem native Edge-Clients (mac
 - `jinja2` (Templating für das Dashboard)
 - `python-multipart` (File-Uploads und Export/Import)
 
+
 ### 🍏 Native Clients (Xcode)
+
 - `Xcode 27.0 Beta` (oder neuer)
 - `Swift 5.0+`
 - `macOS 14.0+` Deployment Target (MenuBar App, Agentic Control)
 - `iOS 16.0+` Deployment Target (Mobile Agent Access)
 - *Geplant:* `LiveKit iOS SDK` via Swift Package Manager für direkte WebRTC Audio-Streams ohne WebView.
+
 
 ---
 

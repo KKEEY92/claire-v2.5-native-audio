@@ -995,7 +995,7 @@ body.kkeey-theme {
     <div class="panel-title">Stimme & Shader</div>
     <div class="config-group">
       <label>Voice</label>
-      <select id="voice-sel"></select>
+      <select id="voice-sel" title="Voice Select"></select>
     </div>
     <div class="config-group">
       <label>Shader Background</label>
@@ -1003,15 +1003,15 @@ body.kkeey-theme {
     <div class="shader-pills" id="shader-pills"></div>
     <div class="config-group">
       <label>Shader Intensity</label>
-      <input type="range" id="shader-intensity" min="0" max="100" value="50">
+      <input type="range" id="shader-intensity" min="0" max="100" value="50" title="Shader Intensity" placeholder="Shader Intensity">
     </div>
     <div class="config-group">
       <label>Voice ↔ Shader Kopplung</label>
-      <input type="range" id="voice-coupling" min="0" max="100" value="0">
+      <input type="range" id="voice-coupling" min="0" max="100" value="0" title="Voice Coupling" placeholder="Voice Coupling">
     </div>
     <div class="config-group">
       <label>Accent Color</label>
-      <input type="color" id="accent-color" value="#FF7A00" style="width:100%;height:28px;border:1px solid var(--border);border-radius:8px;background:rgba(11,13,15,0.7);cursor:pointer">
+      <input type="color" id="accent-color" value="#FF7A00" title="Accent Color" placeholder="Accent Color" style="width:100%;height:28px;border:1px solid var(--border);border-radius:8px;background:rgba(11,13,15,0.7);cursor:pointer">
     </div>
 
     <!-- Simulations-Instrumente -->
@@ -1019,13 +1019,13 @@ body.kkeey-theme {
     <div class="config-group" style="display: flex; justify-content: space-between; align-items: center; padding: 10px 16px;">
       <label style="margin-bottom: 0;">WOOP-Coaching</label>
       <label class="switch">
-        <input type="checkbox" id="woop-toggle" onchange="updateSimSettings()">
+        <input type="checkbox" id="woop-toggle" title="WOOP Toggle" placeholder="WOOP Toggle" onchange="updateSimSettings()">
         <span class="slider"></span>
       </label>
     </div>
     <div class="config-group" style="padding: 10px 16px;">
       <label id="energy-override-lbl">Claire-Energie (Auto)</label>
-      <input type="range" id="energy-override-slider" min="-1" max="100" value="-1" oninput="updateEnergySliderLabel(this.value); updateSimSettings();" style="width: 100%;">
+      <input type="range" id="energy-override-slider" min="-1" max="100" value="-1" title="Energy Override" placeholder="Energy Override" oninput="updateEnergySliderLabel(this.value); updateSimSettings();" style="width: 100%;">
     </div>
 
     <div class="panel-title">Persona Layers</div>
@@ -1053,7 +1053,7 @@ body.kkeey-theme {
       <div id="transcript-panel" class="panel" style="flex-grow: 1;">
         <div class="panel-title">
           <span>Transcript</span>
-          <button id="export-btn" class="action-btn">Export (.txt)</button>
+          <button id="transcript-export-btn" class="action-btn">Export (.txt)</button>
         </div>
         <div id="transcript-scroll"></div>
       </div>
