@@ -848,13 +848,126 @@ body.kkeey-theme {
 }
 .kkeey-shatter::before { top: -4px; right: 15%; }
 .kkeey-shatter::after { bottom: -4px; left: 10%; }
+
+/* === RESPONSIVE LAYOUT FOR MOBILE / MAC OS MENU BAR EXTRA === */
+#btn-tab-settings, #btn-tab-stats {
+  display: none !important;
+}
+
+@media (max-width: 900px) {
+  #btn-tab-settings, #btn-tab-stats {
+    display: inline-block !important;
+  }
+
+  /* Core layout adjustment */
+  #app {
+    grid-template-columns: 1fr !important;
+    grid-template-rows: auto 1fr auto !important;
+    grid-template-areas: 
+      "hdr"
+      "main"
+      "foot" !important;
+    gap: 6px !important;
+    padding: 6px !important;
+    height: 100vh !important;
+    overflow: hidden !important;
+  }
+
+  /* Hide default layout panels */
+  #sidebar, #right {
+    display: none !important;
+  }
+
+  /* Show panel as tab content when active tab matches */
+  #app[data-active-tab="settings"] #sidebar {
+    display: flex !important;
+    grid-area: main !important;
+    width: 100% !important;
+    height: 100% !important;
+    overflow-y: auto !important;
+  }
+
+  #app[data-active-tab="stats"] #right {
+    display: flex !important;
+    grid-area: main !important;
+    width: 100% !important;
+    height: 100% !important;
+    overflow-y: auto !important;
+  }
+
+  /* Compact responsive header */
+  #header {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    height: auto !important;
+    padding: 8px 10px !important;
+    gap: 6px !important;
+    border-radius: 12px !important;
+  }
+
+  #header .logo {
+    display: none !important;
+  }
+
+  /* Horizontal scrolling for tab bar */
+  .header-tabs {
+    display: flex !important;
+    gap: 6px !important;
+    overflow-x: auto !important;
+    white-space: nowrap !important;
+    width: 100% !important;
+    padding: 2px 0 6px 0 !important;
+    scrollbar-width: none !important;
+    -ms-overflow-style: none !important;
+    -webkit-overflow-scrolling: touch !important;
+  }
+  
+  .header-tabs::-webkit-scrollbar {
+    display: none !important;
+  }
+
+  .header-tabs .tab-btn {
+    flex-shrink: 0 !important;
+    padding: 6px 12px !important;
+    font-size: 10px !important;
+  }
+
+  /* Compact responsive status bar */
+  #status-bar {
+    display: flex !important;
+    justify-content: space-between !important;
+    width: 100% !important;
+    gap: 8px !important;
+    font-size: 10px !important;
+    padding-top: 4px !important;
+    border-top: 1px solid rgba(255, 122, 0, 0.08) !important;
+  }
+
+  /* Compact responsive footer */
+  #footer {
+    padding: 0 10px !important;
+    font-size: 10px !important;
+    height: 40px !important;
+    border-radius: 10px !important;
+  }
+  
+  #footer #session-info {
+    gap: 10px !important;
+  }
+  
+  #footer #export-btn {
+    padding: 4px 8px !important;
+    font-size: 9px !important;
+    border-radius: 6px !important;
+  }
+}
 </style>
 </head>
 <body class="kkeey-theme kkeey-grain">
 
 <canvas id="shader-canvas"></canvas>
 
-<div id="app">
+<div id="app" data-active-tab="cockpit">
   <!-- HEADER -->
   <div id="header">
     <div class="logo">CLAIRE <span>V2.5</span></div>
@@ -862,9 +975,11 @@ body.kkeey-theme {
     <!-- Tab Navigation -->
     <div class="header-tabs">
       <button class="tab-btn active" id="btn-tab-cockpit" onclick="switchTab('cockpit')">Cockpit</button>
-      <button class="tab-btn" id="btn-tab-memory" onclick="switchTab('memory')">RAG Gedächtnis</button>
-      <button class="tab-btn" id="btn-tab-obsidian" onclick="switchTab('obsidian')">Obsidian Archiv</button>
-      <button class="tab-btn" id="btn-tab-sync" onclick="switchTab('sync')">AI Sync Center</button>
+      <button class="tab-btn" id="btn-tab-settings" onclick="switchTab('settings')">Settings</button>
+      <button class="tab-btn" id="btn-tab-memory" onclick="switchTab('memory')">RAG</button>
+      <button class="tab-btn" id="btn-tab-obsidian" onclick="switchTab('obsidian')">Obsidian</button>
+      <button class="tab-btn" id="btn-tab-sync" onclick="switchTab('sync')">Sync</button>
+      <button class="tab-btn" id="btn-tab-stats" onclick="switchTab('stats')">Status</button>
     </div>
 
     <div id="status-bar">
@@ -1597,6 +1712,12 @@ let currentEditingObsidianPath = null;
 function switchTab(tabId) {
   currentActiveTab = tabId;
   
+  // Set active tab on app wrapper for CSS selection
+  const appEl = document.getElementById('app');
+  if (appEl) {
+    appEl.setAttribute('data-active-tab', tabId);
+  }
+  
   // Update Tab Buttons
   document.querySelectorAll('.header-tabs .tab-btn').forEach(btn => {
     btn.classList.remove('active');
@@ -1608,7 +1729,11 @@ function switchTab(tabId) {
   document.querySelectorAll('.tab-content').forEach(content => {
     content.classList.remove('active');
   });
-  document.getElementById(`tab-${tabId}`).classList.add('active');
+  
+  const tabContentEl = document.getElementById(`tab-${tabId}`);
+  if (tabContentEl) {
+    tabContentEl.classList.add('active');
+  }
 
   // Load specific tab data
   if (tabId === 'memory') {
