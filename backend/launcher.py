@@ -119,7 +119,7 @@ def main():
     webbrowser.open(f"http://localhost:{PORT}")
 
     import uvicorn
-    uvicorn.run("dashboard:app", host="127.0.0.1", port=PORT, log_level="warning")
+    uvicorn.run("dashboard:app", host="0.0.0.0", port=PORT, log_level="warning")
 
 
 if __name__ == "__main__":

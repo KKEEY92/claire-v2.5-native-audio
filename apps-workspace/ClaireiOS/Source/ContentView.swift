@@ -2,7 +2,7 @@ import SwiftUI
 import WebKit
 
 struct ContentView: View {
-    @State private var backendURL: String = "http://localhost:8550" // Lokaler Standard, anpassbar
+    @State private var backendURL: String = "http://192.168.178.179:8550" // Lokaler Standard, anpassbar
 
     var body: some View {
         VStack(spacing: 0) {
