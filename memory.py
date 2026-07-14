@@ -56,8 +56,9 @@ CATEGORIES = [
 
 @dataclass
 class MemoryEntry:
-    category: str
-    content: str
+    id: Optional[int] = None
+    category: str = "personal_fact"
+    content: str = ""
     timestamp: str = field(default_factory=lambda: datetime.datetime.now().isoformat())
     importance: float = 0.5
     tags: list[str] = field(default_factory=list)
@@ -65,6 +66,7 @@ class MemoryEntry:
 
     def to_dict(self) -> dict:
         return {
+            "id":         self.id,
             "category":   self.category,
             "content":    self.content,
             "timestamp":  self.timestamp,
@@ -76,6 +78,7 @@ class MemoryEntry:
     @classmethod
     def from_dict(cls, d: dict) -> "MemoryEntry":
         return cls(
+            id=d.get("id"),
             category=d.get("category", "personal_fact"),
             content=d.get("content", ""),
             timestamp=d.get("timestamp", datetime.datetime.now().isoformat()),
@@ -340,13 +343,13 @@ class DriveMemory:
             return self._facts_cache
         with self._lock:
             rows = self._db.execute(
-                "SELECT category, content, timestamp, importance, tags, embedding FROM facts"
+                "SELECT id, category, content, timestamp, importance, tags, embedding FROM facts"
             ).fetchall()
         self._facts_cache = [
             MemoryEntry(
-                category=r[0], content=r[1], timestamp=r[2],
-                importance=r[3], tags=json.loads(r[4]),
-                embedding=_unpack_embedding(r[5]),
+                id=r[0], category=r[1], content=r[2], timestamp=r[3],
+                importance=r[4], tags=json.loads(r[5]),
+                embedding=_unpack_embedding(r[6]),
             )
             for r in rows
         ]
@@ -356,13 +359,66 @@ class DriveMemory:
         with self._lock:
             self._db.execute("DELETE FROM facts")
             for e in entries:
-                self._db.execute(
-                    "INSERT INTO facts (category, content, timestamp, importance, tags, embedding) VALUES (?, ?, ?, ?, ?, ?)",
-                    (e.category, e.content, e.timestamp, e.importance, json.dumps(e.tags), _pack_embedding(e.embedding)),
+                cursor = self._db.execute(
+                    "INSERT INTO facts (id, category, content, timestamp, importance, tags, embedding) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (e.id, e.category, e.content, e.timestamp, e.importance, json.dumps(e.tags), _pack_embedding(e.embedding)),
                 )
+                if e.id is None:
+                    e.id = cursor.lastrowid
             self._db.commit()
         self._facts_cache = entries
         self._queue_drive_sync("facts.json", json.dumps([e.to_dict() for e in entries], ensure_ascii=False))
+
+    def create_fact(self, category: str, content: str, importance: float = 0.5) -> MemoryEntry:
+        if category not in CATEGORIES:
+            category = "personal_fact"
+        embedding = _compute_embedding(content)
+        entry = MemoryEntry(
+            category=category,
+            content=content,
+            importance=importance,
+            embedding=embedding
+        )
+        with self._lock:
+            cursor = self._db.execute(
+                "INSERT INTO facts (category, content, timestamp, importance, tags, embedding) VALUES (?, ?, ?, ?, ?, ?)",
+                (entry.category, entry.content, entry.timestamp, entry.importance, json.dumps(entry.tags), _pack_embedding(entry.embedding))
+            )
+            entry.id = cursor.lastrowid
+            self._db.commit()
+        
+        # Cache zurücksetzen, damit neu geladen wird
+        self._facts_cache = None
+        self.load_facts()
+        self._queue_drive_sync("facts.json", json.dumps([e.to_dict() for e in self.load_facts()], ensure_ascii=False))
+        return entry
+
+    def update_fact(self, fact_id: int, category: str, content: str, importance: float = 0.5) -> bool:
+        if category not in CATEGORIES:
+            category = "personal_fact"
+        embedding = _compute_embedding(content)
+        ts = datetime.datetime.now().isoformat()
+        with self._lock:
+            self._db.execute(
+                "UPDATE facts SET category = ?, content = ?, timestamp = ?, importance = ?, embedding = ? WHERE id = ?",
+                (category, content, ts, importance, _pack_embedding(embedding), fact_id)
+            )
+            self._db.commit()
+        
+        self._facts_cache = None
+        self.load_facts()
+        self._queue_drive_sync("facts.json", json.dumps([e.to_dict() for e in self.load_facts()], ensure_ascii=False))
+        return True
+
+    def delete_fact(self, fact_id: int) -> bool:
+        with self._lock:
+            self._db.execute("DELETE FROM facts WHERE id = ?", (fact_id,))
+            self._db.commit()
+        
+        self._facts_cache = None
+        self.load_facts()
+        self._queue_drive_sync("facts.json", json.dumps([e.to_dict() for e in self.load_facts()], ensure_ascii=False))
+        return True
 
     def upsert_fact(self, category: str, content: str, importance: float = 0.5) -> str:
         if category not in CATEGORIES:
@@ -378,13 +434,7 @@ class DriveMemory:
                 self.save_facts(entries)
                 return f"Updated [{category}]: {content[:80]}"
 
-        entries.append(MemoryEntry(
-            category=category,
-            content=content,
-            importance=importance,
-            embedding=embedding,
-        ))
-        self.save_facts(entries)
+        entry = self.create_fact(category, content, importance)
         return f"Gespeichert [{category}]: {content[:80]}"
 
     def load_ego_state(self) -> dict:

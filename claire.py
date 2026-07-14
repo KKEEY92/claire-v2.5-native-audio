@@ -22,11 +22,21 @@ import pyaudio
 # SDK bug (google-genai 2.9 + Python 3.15): enums serialize as
 # "Modality.AUDIO" instead of "AUDIO" in Live API websocket setup.
 _orig_convert = _genai_common.convert_to_dict
-def _patched_convert(obj, convert_keys=False):
+
+def _clean_enums(value):
     import enum as _enum
-    if isinstance(obj, _enum.Enum):
-        return obj.value
-    return _orig_convert(obj, convert_keys)
+    if isinstance(value, _enum.Enum):
+        return value.value
+    elif isinstance(value, dict):
+        return {k: _clean_enums(v) for k, v in value.items()}
+    elif isinstance(value, list):
+        return [_clean_enums(v) for v in value]
+    return value
+
+def _patched_convert(obj, convert_keys=False):
+    res = _orig_convert(obj, convert_keys)
+    return _clean_enums(res)
+
 _genai_common.convert_to_dict = _patched_convert
 
 from persona import (
@@ -43,7 +53,7 @@ from memory import DriveMemory, MemoryContext
 
 # ── CONFIG ────────────────────────────────────────────────────────────────────
 
-MODEL = os.getenv("CLAIRE_MODEL", "gemini-2.5-flash-native-audio-preview")
+MODEL = os.getenv("CLAIRE_MODEL", "gemini-2.5-flash-native-audio-latest")
 VOICE = os.getenv("CLAIRE_VOICE", "Aoede")
 
 FORMAT = pyaudio.paInt16

@@ -5,124 +5,852 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Claire V2.5 — Voice Agent Cockpit</title>
 <style>
+/* === KKEEY Design System v1.0 - Liquid-ORANGE === */
 *{margin:0;padding:0;box-sizing:border-box}
-:root{
-  --bg:#0a0a0f;--surface:rgba(15,15,25,0.75);--glass:rgba(255,255,255,0.04);
-  --border:rgba(255,255,255,0.08);--text:#e0e0e8;--dim:#666;--accent:#7c6aef;
-  --accent2:#4ecdc4;--kev:#e8b84a;--claire:#7cc4f5;--energy-low:#e74c3c;
-  --energy-mid:#f39c12;--energy-high:#2ecc71;--radius:12px;
-  --font:'SF Mono',ui-monospace,'Cascadia Code','Fira Code',monospace;
+
+/* === HEADER TABS === */
+.header-tabs {
+  display: flex;
+  gap: 12px;
+  align-items: center;
 }
-html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);font-family:var(--font);font-size:13px}
 
-/* ── SHADER CANVAS ─────────────────────────── */
-#shader-canvas{position:fixed;top:0;left:0;width:100%;height:100%;z-index:0;opacity:0.5;pointer-events:none}
+.tab-btn {
+  background: rgba(28, 31, 36, 0.4);
+  border: 1px solid rgba(255, 122, 0, 0.2);
+  border-radius: 8px;
+  color: var(--dim);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  padding: 6px 14px;
+  cursor: pointer;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
 
-/* ── LAYOUT ────────────────────────────────── */
-#app{position:relative;z-index:1;display:grid;height:100vh;
-  grid-template-columns:260px 1fr 280px;grid-template-rows:48px 1fr 52px;
-  grid-template-areas:"hdr hdr hdr" "side main right" "foot foot foot";gap:1px}
+.tab-btn:hover {
+  border-color: rgba(255, 122, 0, 0.6);
+  color: #fff;
+  background: rgba(255, 122, 0, 0.08);
+  box-shadow: 0 0 10px rgba(255, 122, 0, 0.15);
+}
 
-/* ── PANELS ────────────────────────────────── */
-.panel{background:var(--surface);backdrop-filter:blur(20px) saturate(1.4);
-  border:1px solid var(--border);overflow:hidden}
-.panel-title{font-size:10px;text-transform:uppercase;letter-spacing:1.5px;color:var(--dim);
-  padding:12px 14px 8px;border-bottom:1px solid var(--border)}
+.tab-btn.active {
+  background: rgba(255, 122, 0, 0.2);
+  border-color: var(--kkeey-orange-core);
+  color: #fff;
+  font-weight: 700;
+  box-shadow: 
+    0 0 15px rgba(255, 122, 0, 0.35),
+    inset 0 0 8px rgba(255, 122, 0, 0.2);
+}
 
-/* ── HEADER ────────────────────────────────── */
-#header{grid-area:hdr;display:flex;align-items:center;justify-content:space-between;
-  padding:0 16px;background:rgba(10,10,15,0.9);border-bottom:1px solid var(--border)}
-#header .logo{font-size:14px;font-weight:700;letter-spacing:2px}
-#header .logo span{color:var(--accent)}
-#status-bar{display:flex;gap:16px;align-items:center;font-size:11px;color:var(--dim)}
-.status-dot{width:8px;height:8px;border-radius:50%;background:var(--energy-low);display:inline-block;margin-right:4px}
-.status-dot.connected{background:var(--energy-high);box-shadow:0 0 8px var(--energy-high)}
+/* === TAB INHALTE === */
+.tab-content {
+  display: none;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  gap: 6px;
+}
 
-/* ── SIDEBAR (Config) ──────────────────────── */
-#sidebar{grid-area:side;display:flex;flex-direction:column;gap:1px;overflow-y:auto}
-.config-group{padding:12px 14px}
-.config-group label{display:block;font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--dim);margin-bottom:6px}
-.config-group select,.config-group input[type=range]{width:100%;background:var(--glass);color:var(--text);border:1px solid var(--border);
-  border-radius:6px;padding:6px 8px;font-family:var(--font);font-size:12px;outline:none}
-.config-group select:focus{border-color:var(--accent)}
-.config-group input[type=range]{-webkit-appearance:none;height:4px;border-radius:2px;background:var(--border);padding:0;margin-top:4px}
-.config-group input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;border-radius:50%;background:var(--accent);cursor:pointer}
-.persona-layers{padding:12px 14px;font-size:10px;line-height:1.8}
-.persona-layers .layer{display:flex;gap:8px;align-items:center;color:var(--dim)}
-.persona-layers .layer .dot{width:6px;height:6px;border-radius:50%;flex-shrink:0}
+.tab-content.active {
+  display: flex;
+}
 
-/* ── SHADER SELECTOR ───────────────────────── */
-.shader-pills{display:flex;flex-wrap:wrap;gap:4px;padding:0 14px 12px}
-.shader-pill{padding:4px 10px;border-radius:16px;font-size:10px;cursor:pointer;
-  background:var(--glass);border:1px solid var(--border);color:var(--dim);transition:all .2s}
-.shader-pill.active{background:var(--accent);color:#fff;border-color:var(--accent)}
+/* RAG Editor Styles */
+.rag-table-container {
+  overflow-y: auto;
+  flex-grow: 1;
+  padding: 10px;
+}
 
-/* ── MAIN AREA ─────────────────────────────── */
-#main{grid-area:main;display:flex;flex-direction:column;gap:1px;overflow:hidden}
+.rag-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--font-display);
+  font-size: 12px;
+  color: var(--text);
+}
 
-/* Waveform */
-#waveform-panel{height:120px;position:relative;flex-shrink:0}
-#waveform-canvas{width:100%;height:100%}
-#call-btn{position:absolute;bottom:12px;left:50%;transform:translateX(-50%);
-  width:56px;height:56px;border-radius:50%;border:2px solid var(--accent);background:rgba(124,106,239,0.15);
-  color:var(--accent);font-size:22px;cursor:pointer;display:flex;align-items:center;justify-content:center;
-  transition:all .2s;z-index:2}
-#call-btn:hover{background:var(--accent);color:#fff;box-shadow:0 0 20px rgba(124,106,239,0.4)}
-#call-btn.active{background:#e74c3c;border-color:#e74c3c;color:#fff;animation:pulse 1.5s infinite}
-@keyframes pulse{0%,100%{box-shadow:0 0 0 0 rgba(231,76,60,0.4)}50%{box-shadow:0 0 0 12px rgba(231,76,60,0)}}
-#duplex-indicator{position:absolute;top:8px;right:12px;font-size:9px;color:var(--dim);
-  padding:3px 8px;border-radius:10px;background:var(--glass);border:1px solid var(--border)}
-#duplex-indicator.active{color:var(--accent2);border-color:var(--accent2)}
+.rag-table th {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--dim);
+  padding: 8px 10px;
+  text-align: left;
+  border-bottom: 2px solid rgba(255, 122, 0, 0.15);
+}
 
-/* Transcript */
-#transcript-panel{flex:1;overflow:hidden;display:flex;flex-direction:column}
-#transcript-scroll{flex:1;overflow-y:auto;padding:12px 16px;scroll-behavior:smooth}
-.msg{margin-bottom:10px;max-width:85%}
-.msg.kev{margin-left:auto;text-align:right}
-.msg .role{font-size:9px;text-transform:uppercase;letter-spacing:1px;margin-bottom:2px}
-.msg.kev .role{color:var(--kev)}
-.msg.claire .role{color:var(--claire)}
-.msg .text{font-size:12px;line-height:1.5;padding:8px 12px;border-radius:8px;display:inline-block}
-.msg.kev .text{background:rgba(232,184,74,0.1);border:1px solid rgba(232,184,74,0.15)}
-.msg.claire .text{background:rgba(124,196,245,0.1);border:1px solid rgba(124,196,245,0.15)}
+.rag-table td {
+  padding: 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
 
-/* ── RIGHT PANEL ───────────────────────────── */
-#right{grid-area:right;display:flex;flex-direction:column;gap:1px;overflow-y:auto}
+.rag-table tr:hover {
+  background: rgba(255, 122, 0, 0.03);
+}
 
-/* Energy Gauge */
-#energy-panel{padding:14px;text-align:center;min-height:180px}
-#energy-arc{margin:0 auto 8px}
-#energy-value{font-size:28px;font-weight:700;font-variant-numeric:tabular-nums}
-#energy-label{font-size:11px;color:var(--dim);margin-top:2px}
-#energy-sparkline{width:100%;height:30px;margin-top:8px}
-#prosody-hint{font-size:10px;color:var(--dim);margin-top:6px;font-style:italic}
+.rag-actions {
+  display: flex;
+  gap: 6px;
+}
 
-/* Memory */
-#memory-panel{flex:1;overflow:hidden;display:flex;flex-direction:column}
-#memory-scroll{flex:1;overflow-y:auto;padding:8px 12px}
-.mem-entry{font-size:11px;padding:6px 8px;margin-bottom:4px;border-radius:6px;
-  background:var(--glass);border:1px solid var(--border)}
-.mem-entry .mem-action{font-size:9px;text-transform:uppercase;letter-spacing:1px;margin-bottom:2px}
-.mem-entry .mem-action.save{color:var(--accent2)}
-.mem-entry .mem-action.recall{color:var(--accent)}
-.mem-entry .mem-cat{color:var(--dim);font-size:9px}
-#memory-count{font-size:10px;color:var(--dim);padding:8px 12px;border-top:1px solid var(--border)}
+.action-btn {
+  background: rgba(28, 31, 36, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  color: var(--text);
+  padding: 4px 8px;
+  font-size: 10px;
+  cursor: pointer;
+  font-family: var(--font-mono);
+  transition: all 0.2s;
+}
 
-/* ── FOOTER ────────────────────────────────── */
-#footer{grid-area:foot;display:flex;align-items:center;justify-content:space-between;padding:0 16px;
-  background:rgba(10,10,15,0.9);border-top:1px solid var(--border);font-size:10px;color:var(--dim)}
-#session-info{display:flex;gap:16px}
-#export-btn{padding:4px 12px;border-radius:6px;background:var(--glass);border:1px solid var(--border);
-  color:var(--dim);cursor:pointer;font-family:var(--font);font-size:10px}
-#export-btn:hover{color:var(--text);border-color:var(--accent)}
+.action-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
 
-/* ── SCROLLBAR ─────────────────────────────── */
-::-webkit-scrollbar{width:4px}
-::-webkit-scrollbar-track{background:transparent}
-::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px}
+.action-btn.edit:hover {
+  border-color: var(--kkeey-cyan-core);
+  color: var(--kkeey-cyan-core);
+  box-shadow: 0 0 8px rgba(0, 229, 255, 0.2);
+}
+
+.action-btn.delete:hover {
+  border-color: #e74c3c;
+  color: #e74c3c;
+  box-shadow: 0 0 8px rgba(231, 76, 60, 0.25);
+}
+
+.rag-form {
+  display: grid;
+  grid-template-columns: 140px 1fr 80px 100px;
+  gap: 10px;
+  padding: 14px 18px;
+  background: rgba(11, 13, 15, 0.35);
+  border-top: 1px solid rgba(255, 122, 0, 0.12);
+  align-items: center;
+}
+
+.rag-form input, .rag-form select {
+  background: rgba(11, 13, 15, 0.7);
+  border: 1px solid var(--kkeey-slate);
+  border-radius: 8px;
+  color: #fff;
+  padding: 8px 10px;
+  font-family: var(--font-display);
+  font-size: 12px;
+  outline: none;
+}
+
+.rag-form input:focus, .rag-form select:focus {
+  border-color: var(--kkeey-orange-core);
+}
+
+/* Obsidian Split Editor Styles */
+.obsidian-layout {
+  display: grid;
+  grid-template-columns: 240px 1fr;
+  flex-grow: 1;
+  height: 100%;
+}
+
+.obsidian-sidebar {
+  border-right: 1px solid rgba(255, 122, 0, 0.12);
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow-y: auto;
+  background: rgba(11, 13, 15, 0.2);
+}
+
+.obsidian-file-item {
+  padding: 10px 14px;
+  cursor: pointer;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.02);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--dim);
+  transition: all 0.2s;
+}
+
+.obsidian-file-item:hover {
+  background: rgba(255, 122, 0, 0.04);
+  color: #fff;
+}
+
+.obsidian-file-item.active {
+  background: rgba(255, 122, 0, 0.08);
+  color: var(--kkeey-orange-soft);
+  border-left: 3px solid var(--kkeey-orange-core);
+}
+
+.obsidian-editor-pane {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 12px;
+}
+
+.obsidian-editor-pane textarea {
+  flex-grow: 1;
+  background: rgba(11, 13, 15, 0.55);
+  border: 1px solid rgba(255, 122, 0, 0.15);
+  border-radius: 12px;
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  padding: 14px;
+  resize: none;
+  outline: none;
+  transition: all 0.3s;
+}
+
+.obsidian-editor-pane textarea:focus {
+  border-color: var(--kkeey-orange-core);
+  box-shadow: 0 0 15px rgba(255, 122, 0, 0.15);
+}
+
+.editor-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-top: 10px;
+}
+
+/* AI Sync Center Styles */
+.sync-layout {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 16px;
+  gap: 14px;
+}
+
+.sync-textarea {
+  height: 120px;
+  background: rgba(11, 13, 15, 0.55);
+  border: 1px solid rgba(255, 122, 0, 0.15);
+  border-radius: 12px;
+  color: var(--text);
+  padding: 12px;
+  font-family: var(--font-display);
+  font-size: 13px;
+  resize: none;
+  outline: none;
+}
+
+.sync-textarea:focus {
+  border-color: var(--kkeey-cyan-core);
+  box-shadow: 0 0 12px rgba(0, 229, 255, 0.15);
+}
+
+.sync-results {
+  flex-grow: 1;
+  background: rgba(11, 13, 15, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 12px;
+  padding: 14px;
+  overflow-y: auto;
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+/* Checkbox Toggle Switch */
+.switch {
+  position: relative;
+  display: inline-block;
+  width: 38px;
+  height: 20px;
+}
+
+.switch input { 
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background-color: rgba(255,255,255,0.1);
+  transition: .3s;
+  border-radius: 20px;
+  border: 1px solid var(--border);
+}
+
+.slider:before {
+  position: absolute;
+  content: "";
+  height: 12px; width: 12px;
+  left: 3px; bottom: 3px;
+  background-color: #fff;
+  transition: .3s;
+  border-radius: 50%;
+}
+
+input:checked + .slider {
+  background-color: var(--kkeey-orange-core);
+  box-shadow: 0 0 8px var(--kkeey-orange-core);
+}
+
+input:checked + .slider:before {
+  transform: translateX(18px);
+}
+
+:root {
+  /* === FARBEN === */
+  --kkeey-orange-core: #FF7A00;
+  --kkeey-orange-glow: #FF9500;
+  --kkeey-orange-deep: #B34700;
+  --kkeey-orange-soft: #FFB347;
+  
+  --kkeey-cyan-core: #00E5FF;
+  --kkeey-cyan-ice: #7DD3FC;
+  --kkeey-cyan-dark: #0891B2;
+  
+  --kkeey-magenta: #D946EF;
+  --kkeey-purple: #9333EA;
+  
+  --kkeey-anthrazit: #1C1F24;
+  --kkeey-graphit: #2A2F36;
+  --kkeey-black: #0B0D0F;
+  --kkeey-slate: #374151;
+  
+  /* === GLASS === */
+  --kkeey-glass-bg: rgba(28, 31, 36, 0.65);
+  --kkeey-glass-border: rgba(255, 122, 0, 0.15);
+  --kkeey-glass-blur: 20px;
+  
+  /* === SHADOWS === */
+  --shadow-orange: 0 0 40px rgba(255, 122, 0, 0.12);
+  --shadow-cyan: 0 0 30px rgba(0, 229, 255, 0.08);
+  --shadow-deep: 0 8px 32px rgba(0, 0, 0, 0.4);
+  
+  /* === TYPOGRAPHY === */
+  --font-display: 'Inter', -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+
+  /* Legacy mapper */
+  --bg: var(--kkeey-black);
+  --surface: var(--kkeey-glass-bg);
+  --border: var(--kkeey-glass-border);
+  --text: #E5E7EB;
+  --dim: #7C8B9E;
+  --accent: var(--kkeey-orange-core);
+  --accent2: var(--kkeey-cyan-core);
+  --kev: var(--kkeey-orange-soft);
+  --claire: var(--kkeey-cyan-ice);
+  --energy-low: #e74c3c;
+  --energy-mid: #f39c12;
+  --energy-high: #2ecc71;
+  --radius: 16px;
+  --font: var(--font-display);
+}
+
+/* === BASE === */
+html,body{
+  height: 100%;
+  overflow: hidden;
+  background: var(--kkeey-black);
+  color: #E5E7EB;
+  font-family: var(--font-display);
+  font-size: 13px;
+}
+
+body.kkeey-theme {
+  background-image: 
+    radial-gradient(at 15% 85%, rgba(255,122,0,0.18) 0%, transparent 55%),
+    radial-gradient(at 85% 15%, rgba(0,229,255,0.12) 0%, transparent 50%),
+    linear-gradient(180deg, #1C1F24 0%, #0B0D0F 100%);
+  min-height: 100vh;
+}
+
+/* === SHADER CANVAS === */
+#shader-canvas{position:fixed;top:0;left:0;width:100%;height:100%;z-index:0;opacity:0.4;pointer-events:none}
+
+/* === LAYOUT === */
+#app{
+  position:relative;z-index:1;display:grid;height:100vh;
+  grid-template-columns:280px 1fr 300px;grid-template-rows:54px 1fr 52px;
+  grid-template-areas:"hdr hdr hdr" "side main right" "foot foot foot";gap:6px;
+  padding:6px;
+}
+
+/* === GLASS CARD / PANELS === */
+.panel {
+  background: rgba(20, 22, 26, 0.48);
+  backdrop-filter: blur(28px) saturate(160%);
+  -webkit-backdrop-filter: blur(28px) saturate(160%);
+  border: 1px solid rgba(255, 122, 0, 0.28);
+  border-radius: 22px;
+  box-shadow: 
+    0 12px 40px rgba(0, 0, 0, 0.6),
+    inset 0 0 25px rgba(255, 122, 0, 0.08),
+    0 0 35px rgba(255, 122, 0, 0.15);
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  transition: all 0.4s cubic-bezier(0.25, 0.8, 0.25, 1);
+}
+
+.panel:hover {
+  border-color: rgba(255, 122, 0, 0.45);
+  box-shadow: 
+    0 16px 48px rgba(0, 0, 0, 0.7),
+    inset 0 0 30px rgba(255, 122, 0, 0.12),
+    0 0 45px rgba(255, 122, 0, 0.25);
+  transform: translateY(-2px);
+}
+
+/* Liquid Shimmer Reflection Effect */
+.panel::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -150%;
+  width: 50%;
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 122, 0, 0.06),
+    transparent
+  );
+  transform: skewX(-25deg);
+  pointer-events: none;
+  animation: liquid-shimmer 8s infinite linear;
+}
+
+@keyframes liquid-shimmer {
+  0% { left: -150%; }
+  100% { left: 150%; }
+}
+
+.panel::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--kkeey-orange-core), var(--kkeey-cyan-core), transparent);
+  opacity: 0.55;
+  filter: blur(0.5px);
+}
+
+.panel-title {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 2.5px;
+  color: var(--kkeey-orange-soft);
+  text-shadow: 0 0 8px rgba(255, 179, 71, 0.4);
+  padding: 16px 18px 12px;
+  border-bottom: 1px solid rgba(255, 122, 0, 0.12);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+/* === HEADER === */
+#header {
+  grid-area: hdr;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 20px;
+  background: rgba(28, 31, 36, 0.8);
+  border: 1px solid var(--kkeey-glass-border);
+  border-radius: 14px;
+  box-shadow: var(--shadow-orange);
+}
+
+#header .logo {
+  font-family: var(--font-mono);
+  font-size: 16px;
+  font-weight: 800;
+  letter-spacing: 3px;
+  color: #fff;
+}
+
+#header .logo span {
+  color: var(--kkeey-orange-core);
+  text-shadow: 0 0 10px rgba(255, 122, 0, 0.6);
+}
+
+#status-bar {
+  display: flex;
+  gap: 20px;
+  align-items: center;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--dim);
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--energy-low);
+  display: inline-block;
+  margin-right: 6px;
+  box-shadow: 0 0 6px var(--energy-low);
+}
+
+.status-dot.connected {
+  background: var(--kkeey-cyan-core);
+  box-shadow: 0 0 10px var(--kkeey-cyan-core);
+}
+
+/* === SIDEBAR === */
+#sidebar { grid-area: side; gap: 1px; }
+.config-group { padding: 14px 16px; }
+.config-group label {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--dim);
+  margin-bottom: 8px;
+}
+
+.config-group select, .config-group input[type=range] {
+  width: 100%;
+  background: rgba(11,13,15,0.7);
+  color: var(--text);
+  border: 1px solid var(--kkeey-slate);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  outline: none;
+  transition: all 0.3s;
+}
+
+.config-group select:focus {
+  border-color: var(--kkeey-cyan-core);
+  box-shadow: 0 0 10px rgba(0, 229, 255, 0.2);
+}
+
+.config-group input[type=range] {
+  -webkit-appearance: none;
+  height: 6px;
+  background: var(--kkeey-slate);
+  padding: 0;
+  cursor: pointer;
+}
+
+.config-group input[type=range]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--kkeey-orange-core);
+  box-shadow: 0 0 8px var(--kkeey-orange-core);
+  cursor: pointer;
+}
+
+.persona-layers { padding: 14px 16px; font-size: 11px; line-height: 2.0; font-family: var(--font-mono); }
+.persona-layers .layer { display: flex; gap: 10px; align-items: center; color: var(--dim); }
+.persona-layers .layer .dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+
+/* === SHADER SELECTION === */
+.shader-pills { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 16px 14px; }
+.shader-pill {
+  padding: 6px 12px;
+  border-radius: 12px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  cursor: pointer;
+  background: rgba(28, 31, 36, 0.5);
+  border: 1px solid rgba(255, 122, 0, 0.15);
+  color: var(--dim);
+  transition: all 0.2s;
+}
+
+.shader-pill:hover {
+  border-color: var(--kkeey-orange-core);
+  color: var(--text);
+}
+
+.shader-pill.active {
+  background: var(--kkeey-orange-core);
+  color: #0b0d0f;
+  font-weight: 700;
+  border-color: var(--kkeey-orange-core);
+  box-shadow: 0 0 12px rgba(255, 122, 0, 0.4);
+}
+
+/* === MAIN AREA === */
+#main { grid-area: main; gap: 6px; }
+
+/* Waveform Panel */
+#waveform-panel { height: 130px; position: relative; flex-shrink: 0; }
+#waveform-canvas { width: 100%; height: 100%; }
+
+#call-btn {
+  position: absolute;
+  bottom: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 58px;
+  height: 58px;
+  border-radius: 50%;
+  border: 1px solid var(--kkeey-orange-core);
+  background: rgba(255, 122, 0, 0.12);
+  color: var(--kkeey-orange-core);
+  font-size: 24px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  z-index: 2;
+  box-shadow: 0 0 15px rgba(255, 122, 0, 0.1);
+}
+
+#call-btn:hover {
+  background: var(--kkeey-orange-core);
+  color: var(--kkeey-black);
+  box-shadow: 0 0 25px rgba(255, 122, 0, 0.5);
+  transform: translateX(-50%) translateY(-2px);
+}
+
+#call-btn.active {
+  background: #e74c3c;
+  border-color: #e74c3c;
+  color: #fff;
+  animation: pulse 1.6s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(231,76,60,0.5); }
+  50% { box-shadow: 0 0 0 14px rgba(231,76,60,0); }
+}
+
+#duplex-indicator {
+  position: absolute;
+  top: 10px;
+  right: 14px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--dim);
+  padding: 4px 10px;
+  border-radius: 10px;
+  background: rgba(11,13,15,0.6);
+  border: 1px solid var(--border);
+}
+
+#duplex-indicator.active {
+  color: var(--kkeey-cyan-core);
+  border-color: var(--kkeey-cyan-core);
+  text-shadow: 0 0 6px var(--kkeey-cyan-core);
+}
+
+/* Transcript Panel */
+#transcript-panel { flex: 1; overflow: hidden; display: flex; flex-direction: column; }
+#transcript-scroll { flex: 1; overflow-y: auto; padding: 16px 20px; scroll-behavior: smooth; }
+
+.msg { margin-bottom: 14px; max-width: 80%; display: flex; flex-direction: column; }
+.msg.kev { margin-left: auto; align-items: flex-end; }
+.msg.claire { align-items: flex-start; }
+
+.msg .role {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  margin-bottom: 4px;
+}
+
+.msg.kev .role { color: var(--kkeey-orange-soft); }
+.msg.claire .role { color: var(--kkeey-cyan-ice); }
+
+.msg .text {
+  font-size: 13px;
+  line-height: 1.6;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: rgba(28, 31, 36, 0.4);
+  border: 1px solid rgba(255, 122, 0, 0.1);
+  box-shadow: inset 0 0 10px rgba(255,255,255,0.01);
+  transition: border-color 0.3s;
+}
+
+.msg.kev .text {
+  background: rgba(255, 122, 0, 0.05);
+  border-color: rgba(255, 122, 0, 0.18);
+  border-top-right-radius: 2px;
+}
+
+.msg.claire .text {
+  background: rgba(0, 229, 255, 0.04);
+  border-color: rgba(0, 229, 255, 0.15);
+  border-top-left-radius: 2px;
+}
+
+/* === RIGHT PANEL === */
+#right { grid-area: right; gap: 6px; }
+
+/* Stimmungsbarometer (Liquid Indicator) */
+#energy-panel {
+  padding: 16px;
+  text-align: center;
+  min-height: 200px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+#energy-arc { margin: 8px auto; display: block; }
+
+#energy-value {
+  font-family: var(--font-mono);
+  font-size: 32px;
+  font-weight: 800;
+  color: var(--kkeey-orange-core);
+  text-shadow: 
+    0 0 10px rgba(255, 122, 0, 0.6),
+    0 0 30px rgba(255, 122, 0, 0.2);
+}
+
+#energy-label {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--kkeey-cyan-core);
+  text-shadow: 0 0 8px rgba(0, 229, 255, 0.4);
+  margin-top: 2px;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+}
+
+#energy-sparkline { width: 100%; height: 35px; margin-top: 12px; }
+#prosody-hint { font-size: 11px; color: var(--dim); margin-top: 8px; font-style: italic; }
+
+/* Liquid Barometer CSS element */
+.liquid-barometer {
+  width: 100%;
+  height: 6px;
+  background: rgba(11,13,15,0.7);
+  border-radius: 3px;
+  margin-top: 14px;
+  overflow: hidden;
+  position: relative;
+  border: 1px solid rgba(255,122,0,0.1);
+}
+
+.liquid-fill {
+  height: 100%;
+  width: 65%;
+  background: linear-gradient(90deg, var(--kkeey-orange-core), var(--kkeey-cyan-core));
+  box-shadow: 0 0 10px var(--kkeey-orange-core);
+  border-radius: 3px;
+  transition: width 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Memory Panel */
+#memory-panel { flex: 1; overflow: hidden; display: flex; flex-direction: column; }
+#memory-scroll { flex: 1; overflow-y: auto; padding: 10px 14px; }
+
+.mem-entry {
+  font-size: 11px;
+  padding: 8px 10px;
+  margin-bottom: 6px;
+  border-radius: 10px;
+  background: rgba(11,13,15,0.4);
+  border: 1px solid rgba(255, 122, 0, 0.08);
+  font-family: var(--font-mono);
+}
+
+.mem-entry .mem-action {
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  margin-bottom: 3px;
+}
+
+.mem-entry .mem-action.save { color: var(--kkeey-orange-core); text-shadow: 0 0 6px rgba(255,122,0,0.3); }
+.mem-entry .mem-action.recall { color: var(--kkeey-cyan-core); text-shadow: 0 0 6px rgba(0,229,255,0.3); }
+.mem-entry .mem-cat { color: var(--dim); font-size: 9px; margin-bottom: 2px; }
+#memory-count { font-family: var(--font-mono); font-size: 10px; color: var(--dim); padding: 10px 14px; border-top: 1px solid rgba(255,122,0,0.1); }
+
+/* === FOOTER === */
+#footer {
+  grid-area: foot;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 20px;
+  background: rgba(28, 31, 36, 0.8);
+  border: 1px solid var(--kkeey-glass-border);
+  border-radius: 14px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--dim);
+}
+
+#session-info { display: flex; gap: 20px; }
+#export-btn {
+  background: var(--kkeey-graphit);
+  border: 1px solid var(--kkeey-glass-border);
+  color: #E5E7EB;
+  padding: 6px 14px;
+  border-radius: 8px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+#export-btn:hover {
+  border-color: var(--kkeey-orange-core);
+  box-shadow: 0 0 12px rgba(255, 122, 0, 0.3);
+  color: var(--kkeey-orange-soft);
+}
+
+/* === SCROLLBAR === */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255, 122, 0, 0.15); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(255, 122, 0, 0.35); }
+
+/* === KKI UTILITIES === */
+.kkeey-grain::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.015'/%3E%3C/svg%3E");
+  pointer-events: none;
+  z-index: 9999;
+}
+
+.kkeey-shatter { position: relative; }
+.kkeey-shatter::before, .kkeey-shatter::after {
+  content: '';
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  background: var(--kkeey-black);
+  border: 1px solid var(--kkeey-orange-core);
+  transform: rotate(45deg);
+  box-shadow: 0 0 8px rgba(255, 122, 0, 0.4);
+}
+.kkeey-shatter::before { top: -4px; right: 15%; }
+.kkeey-shatter::after { bottom: -4px; left: 10%; }
 </style>
 </head>
-<body>
+<body class="kkeey-theme kkeey-grain">
 
 <canvas id="shader-canvas"></canvas>
 
@@ -130,8 +858,17 @@ html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);fon
   <!-- HEADER -->
   <div id="header">
     <div class="logo">CLAIRE <span>V2.5</span></div>
+    
+    <!-- Tab Navigation -->
+    <div class="header-tabs">
+      <button class="tab-btn active" id="btn-tab-cockpit" onclick="switchTab('cockpit')">Cockpit</button>
+      <button class="tab-btn" id="btn-tab-memory" onclick="switchTab('memory')">RAG Gedächtnis</button>
+      <button class="tab-btn" id="btn-tab-obsidian" onclick="switchTab('obsidian')">Obsidian Archiv</button>
+      <button class="tab-btn" id="btn-tab-sync" onclick="switchTab('sync')">AI Sync Center</button>
+    </div>
+
     <div id="status-bar">
-      <span id="health-badge" style="padding:2px 8px;border-radius:8px;font-size:10px;border:1px solid var(--border);background:var(--glass)">—</span>
+      <span id="health-badge" style="padding:2px 8px;border-radius:8px;font-size:10px;border:1px solid var(--border);background:rgba(255,122,0,0.05)">—</span>
       <span><span class="status-dot" id="conn-dot"></span><span id="conn-text">Getrennt</span></span>
       <span id="latency-display">— ms</span>
       <span id="model-display">—</span>
@@ -139,7 +876,7 @@ html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);fon
   </div>
 
   <!-- SIDEBAR -->
-  <div id="sidebar" class="panel">
+  <div id="sidebar" class="panel kkeey-shatter">
     <div class="panel-title">Stimme & Shader</div>
     <div class="config-group">
       <label>Voice</label>
@@ -159,10 +896,25 @@ html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);fon
     </div>
     <div class="config-group">
       <label>Accent Color</label>
-      <input type="color" id="accent-color" value="#7c6aef" style="width:100%;height:28px;border:1px solid var(--border);border-radius:6px;background:var(--glass);cursor:pointer">
+      <input type="color" id="accent-color" value="#FF7A00" style="width:100%;height:28px;border:1px solid var(--border);border-radius:8px;background:rgba(11,13,15,0.7);cursor:pointer">
     </div>
+
+    <!-- Simulations-Instrumente -->
+    <div class="panel-title">Simulations-Steuerung</div>
+    <div class="config-group" style="display: flex; justify-content: space-between; align-items: center; padding: 10px 16px;">
+      <label style="margin-bottom: 0;">WOOP-Coaching</label>
+      <label class="switch">
+        <input type="checkbox" id="woop-toggle" onchange="updateSimSettings()">
+        <span class="slider"></span>
+      </label>
+    </div>
+    <div class="config-group" style="padding: 10px 16px;">
+      <label id="energy-override-lbl">Claire-Energie (Auto)</label>
+      <input type="range" id="energy-override-slider" min="-1" max="100" value="-1" oninput="updateEnergySliderLabel(this.value); updateSimSettings();" style="width: 100%;">
+    </div>
+
     <div class="panel-title">Persona Layers</div>
-    <div class="persona-layers">
+    <div class="persona-layers" style="padding-bottom: 12px;">
       <div class="layer"><span class="dot" style="background:#e74c3c"></span> L0 Identity Lock</div>
       <div class="layer"><span class="dot" style="background:#e67e22"></span> L1 Persona Core</div>
       <div class="layer"><span class="dot" style="background:#f1c40f"></span> L2 Lebensgeschichte</div>
@@ -174,25 +926,108 @@ html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);fon
   </div>
 
   <!-- MAIN -->
-  <div id="main">
-    <div id="waveform-panel" class="panel">
-      <canvas id="waveform-canvas"></canvas>
-      <button id="call-btn">&#9743;</button>
-      <div id="duplex-indicator">HALF-DUPLEX</div>
+  <div id="main" style="display: flex; flex-direction: column; gap: 6px;">
+    
+    <!-- Tab 1: Cockpit -->
+    <div id="tab-cockpit" class="tab-content active">
+      <div id="waveform-panel" class="panel">
+        <canvas id="waveform-canvas"></canvas>
+        <button id="call-btn">&#9743;</button>
+        <div id="duplex-indicator">HALF-DUPLEX</div>
+      </div>
+      <div id="transcript-panel" class="panel" style="flex-grow: 1;">
+        <div class="panel-title">
+          <span>Transcript</span>
+          <button id="export-btn" class="action-btn">Export (.txt)</button>
+        </div>
+        <div id="transcript-scroll"></div>
+      </div>
     </div>
-    <div id="transcript-panel" class="panel">
-      <div class="panel-title">Transcript</div>
-      <div id="transcript-scroll"></div>
+
+    <!-- Tab 2: RAG Gedächtnis Editor -->
+    <div id="tab-memory" class="tab-content">
+      <div class="panel" style="flex-grow: 1;">
+        <div class="panel-title">RAG Gedächtnis (SQLite facts)</div>
+        <div class="rag-table-container">
+          <table class="rag-table">
+            <thead>
+              <tr>
+                <th style="width: 140px;">Kategorie</th>
+                <th>Inhalt</th>
+                <th style="width: 80px; text-align: center;">Relevanz</th>
+                <th style="width: 140px; text-align: center;">Aktionen</th>
+              </tr>
+            </thead>
+            <tbody id="rag-table-body">
+              <!-- Dynamisch befüllt -->
+            </tbody>
+          </table>
+        </div>
+        <div class="rag-form">
+          <select id="new-fact-cat">
+            <option value="personal_fact">Personal Fact</option>
+            <option value="preference">Preference</option>
+            <option value="goal">Goal</option>
+            <option value="relationship">Relationship</option>
+            <option value="past_event">Past Event</option>
+            <option value="emotional_state">Emotional State</option>
+            <option value="episode">Episode</option>
+          </select>
+          <input type="text" id="new-fact-content" placeholder="Erinnerung formulieren (z.B. Kev mag Techno)...">
+          <input type="number" id="new-fact-importance" min="0" max="1" step="0.1" value="0.5" style="width: 70px;">
+          <button onclick="createNewFact()" class="tab-btn active" style="width: 100%; height: 32px;">Hinzufügen</button>
+        </div>
+      </div>
     </div>
+
+    <!-- Tab 3: Obsidian Archiv Browser & Editor -->
+    <div id="tab-obsidian" class="tab-content">
+      <div class="panel" style="flex-grow: 1;">
+        <div class="panel-title">Obsidian Character & Persona Archiv</div>
+        <div class="obsidian-layout">
+          <div class="obsidian-sidebar" id="obsidian-files-list">
+            <!-- Dateiliste -->
+          </div>
+          <div class="obsidian-editor-pane">
+            <textarea id="obsidian-editor" placeholder="Wähle eine Datei aus der Sidebar aus..."></textarea>
+            <div class="editor-footer">
+              <span id="editor-status" style="font-family: var(--font-mono); font-size: 10px; color: var(--dim)">Keine Datei geöffnet</span>
+              <button onclick="saveObsidianFile()" id="editor-save-btn" class="tab-btn active" disabled>Speichern & RAG-Rebuild</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tab 4: AI Sync Center -->
+    <div id="tab-sync" class="tab-content">
+      <div class="panel" style="flex-grow: 1;">
+        <div class="panel-title">AI Sync Center — Kognitive Extraktion</div>
+        <div class="sync-layout">
+          <p style="font-size: 11px; color: var(--dim); line-height: 1.4;">
+            Gib hier rohe Informationen, Notizen oder Chat-Auszüge ein. Claire extrahiert automatisch relevante Fakten für das RAG-Gedächtnis und aktualisiert deine Masterakte v2.3.0.
+          </p>
+          <textarea id="sync-raw-text" class="sync-textarea" placeholder="z.B. Gestern habe ich die Traktor S4 MK3 mit LED-Sync eingerichtet..."></textarea>
+          <button onclick="processSyncContext()" id="sync-btn" class="tab-btn active" style="height: 36px;">Kontext analysieren & synchronisieren</button>
+          <div id="sync-log-pane" class="sync-results" style="display: none;">
+            <!-- Protokoll -->
+          </div>
+        </div>
+      </div>
+    </div>
+
   </div>
 
   <!-- RIGHT -->
   <div id="right">
-    <div id="energy-panel" class="panel">
-      <div class="panel-title">EmotionEngine</div>
+    <div id="energy-panel" class="panel kkeey-shatter">
+      <div class="panel-title">Stimmungsbarometer</div>
       <canvas id="energy-arc" width="160" height="100"></canvas>
       <div id="energy-value">0.65</div>
       <div id="energy-label">Default</div>
+      <div class="liquid-barometer">
+        <div id="liquid-barometer-fill" class="liquid-fill"></div>
+      </div>
       <canvas id="energy-sparkline"></canvas>
       <div id="prosody-hint">—</div>
     </div>
@@ -228,6 +1063,22 @@ vec3 wpal(float t,vec3 a,vec3 b,vec3 c,vec3 d){return a+b*cos(6.28318*(c*t+d));}
 `;
 
 const SHADERS = {
+  liquid: SHADER_HEAD + `
+void main(){
+  vec2 uv=(gl_FragCoord.xy-uRes*.5)/min(uRes.x,uRes.y);
+  float t=uTime*.15;
+  for(float i=1.0;i<4.0;i++){
+    uv.x+=sin(uv.y*3.0+t+i)*0.18/i;
+    uv.y+=cos(uv.x*3.0+t+i)*0.18/i;
+  }
+  float f=sin(uv.x*2.0)*cos(uv.y*2.0);
+  vec3 c1=vec3(1.0,0.478,0.0); // Neon Orange
+  vec3 c2=vec3(0.0,0.898,1.0); // Electric Cyan
+  vec3 finalCol=mix(c1,c2,f*0.5+0.5)*(0.75+uVoiceAmp*0.45)*uIntensity;
+  float vignette=smoothstep(1.5,0.5,length(uv));
+  gl_FragColor=vec4(finalCol*vignette,1.0);
+}`,
+
   lattice: SHADER_HEAD + `
 void main(){vec2 uv=(gl_FragCoord.xy-uRes*.5)/min(uRes.x,uRes.y);
 float t=uTime*.3;vec2 m=(uMouse-.5)*2.;uv+=m*.05;
@@ -274,7 +1125,7 @@ gl_FragColor=vec4(c,1);}`,
 };
 
 let shGL=null, shProg=null, shActive=null, shTime=0, shRAF=null;
-let shMouse=[0.5,0.5], shAccent=[0.486,0.416,0.937], shIntensity=0.5;
+let shMouse=[0.5,0.5], shAccent=[1.0,0.478,0.0], shIntensity=0.5;
 let voiceAmp=0, voiceCoupling=0;
 
 function hexToGL(h){const r=parseInt(h.slice(1,3),16)/255,g=parseInt(h.slice(3,5),16)/255,b=parseInt(h.slice(5,7),16)/255;return[r,g,b]}
@@ -409,23 +1260,29 @@ function drawEnergyArc(energy){
   const cx=w/2,cy=h-5,r=70;
   const startA=Math.PI,endA=0;
 
+  // Background Arc
   ctx.beginPath();ctx.arc(cx,cy,r,startA,endA);
-  ctx.strokeStyle='rgba(255,255,255,0.06)';ctx.lineWidth=8;ctx.lineCap='round';ctx.stroke();
+  ctx.strokeStyle='rgba(255,255,255,0.03)';ctx.lineWidth=8;ctx.lineCap='round';ctx.stroke();
+
+  // Active Arc with Linear Gradient
+  const grad = ctx.createLinearGradient(0, cy, w, cy);
+  grad.addColorStop(0, '#FF7A00');   // Neon Orange
+  grad.addColorStop(0.5, '#D946EF'); // Magenta transition
+  grad.addColorStop(1, '#00E5FF');   // Electric Cyan
 
   const angle=startA+(endA-startA)*energy;
-  let color;
-  if(energy<0.3)color='#e74c3c';
-  else if(energy<0.5)color='#e67e22';
-  else if(energy<0.7)color='#f39c12';
-  else if(energy<0.85)color='#2ecc71';
-  else color='#7c6aef';
 
   ctx.beginPath();ctx.arc(cx,cy,r,startA,angle);
-  ctx.strokeStyle=color;ctx.lineWidth=8;ctx.lineCap='round';ctx.stroke();
+  ctx.strokeStyle=grad;ctx.lineWidth=8;ctx.lineCap='round';ctx.stroke();
 
-  ctx.shadowBlur=12;ctx.shadowColor=color;
+  // Glow point at the tip
+  let tipColor = '#FF7A00';
+  if (energy > 0.4 && energy < 0.75) tipColor = '#D946EF';
+  else if (energy >= 0.75) tipColor = '#00E5FF';
+
+  ctx.shadowBlur=14;ctx.shadowColor=tipColor;
   ctx.beginPath();ctx.arc(cx,cy,r,angle-0.02,angle);
-  ctx.strokeStyle=color;ctx.lineWidth=8;ctx.stroke();
+  ctx.strokeStyle=tipColor;ctx.lineWidth=8;ctx.stroke();
   ctx.shadowBlur=0;
 }
 
@@ -445,26 +1302,60 @@ function drawSparkline(){
     const x=i*step,y=h-(energyHistory[i]*h);
     i===0?ctx.moveTo(x,y):ctx.lineTo(x,y);
   }
-  ctx.strokeStyle='rgba(124,106,239,0.5)';ctx.lineWidth=1.5;ctx.stroke();
+  ctx.strokeStyle='rgba(255,122,0,0.45)';ctx.lineWidth=1.5;ctx.stroke();
 
   const last=energyHistory[energyHistory.length-1];
   const lx=(energyHistory.length-1)*step,ly=h-(last*h);
   ctx.beginPath();ctx.arc(lx,ly,3,0,Math.PI*2);
-  ctx.fillStyle='var(--accent)';ctx.fill();
+  ctx.fillStyle='var(--kkeey-cyan-core)';ctx.fill();
 }
 
 function updateEnergy(energy, label){
   document.getElementById('energy-value').textContent=energy.toFixed(2);
   document.getElementById('energy-label').textContent=label;
+  
+  // Custom text color based on energy level
+  const valEl = document.getElementById('energy-value');
+  const lblEl = document.getElementById('energy-label');
+  if (energy < 0.35) {
+    valEl.style.color = '#e74c3c';
+    valEl.style.textShadow = '0 0 10px rgba(231,76,96,0.5)';
+    lblEl.style.color = 'var(--dim)';
+  } else if (energy < 0.7) {
+    valEl.style.color = 'var(--kkeey-orange-core)';
+    valEl.style.textShadow = '0 0 12px rgba(255,122,0,0.6)';
+    lblEl.style.color = 'var(--kkeey-orange-soft)';
+  } else {
+    valEl.style.color = 'var(--kkeey-cyan-core)';
+    valEl.style.textShadow = '0 0 15px rgba(0,229,255,0.7)';
+    lblEl.style.color = 'var(--kkeey-cyan-ice)';
+  }
+
+  // Update Liquid Barometer Fill
+  const fillEl = document.getElementById('liquid-barometer-fill');
+  if (fillEl) {
+    fillEl.style.width = (energy * 100) + '%';
+    if (energy < 0.35) {
+      fillEl.style.background = '#e74c3c';
+      fillEl.style.boxShadow = '0 0 8px #e74c3c';
+    } else if (energy < 0.7) {
+      fillEl.style.background = 'linear-gradient(90deg, var(--kkeey-orange-deep), var(--kkeey-orange-core))';
+      fillEl.style.boxShadow = '0 0 10px var(--kkeey-orange-core)';
+    } else {
+      fillEl.style.background = 'linear-gradient(90deg, var(--kkeey-orange-core), var(--kkeey-cyan-core))';
+      fillEl.style.boxShadow = '0 0 12px var(--kkeey-cyan-core)';
+    }
+  }
+
   drawEnergyArc(energy);
   energyHistory.push(energy);
   if(energyHistory.length>MAX_HISTORY)energyHistory.shift();
   drawSparkline();
 
   let hint='—';
-  if(energy<0.25)hint='Langsam, leise, mude...';
+  if(energy<0.25)hint='Langsam, leise, müde...';
   else if(energy<0.45)hint='Ruhig und entspannt';
-  else if(energy<0.75)hint='Naturlich und lebendig';
+  else if(energy<0.75)hint='Natürlich und lebendig';
   else if(energy<0.90)hint='Energisch, etwas schneller';
   else hint='Sehr energisch, expressiv!';
   document.getElementById('prosody-hint').textContent=hint;
@@ -697,6 +1588,317 @@ function escHTML(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(
 
 
 // ══════════════════════════════════════════════════════════════════════════════
+// TAB SYSTEM & ADVANCED DASHBOARD CAPABILITIES
+// ══════════════════════════════════════════════════════════════════════════════
+
+let currentActiveTab = 'cockpit';
+let currentEditingObsidianPath = null;
+
+function switchTab(tabId) {
+  currentActiveTab = tabId;
+  
+  // Update Tab Buttons
+  document.querySelectorAll('.header-tabs .tab-btn').forEach(btn => {
+    btn.classList.remove('active');
+  });
+  const activeBtn = document.getElementById(`btn-tab-${tabId}`);
+  if (activeBtn) activeBtn.classList.add('active');
+
+  // Update Tab Contents
+  document.querySelectorAll('.tab-content').forEach(content => {
+    content.classList.remove('active');
+  });
+  document.getElementById(`tab-${tabId}`).classList.add('active');
+
+  // Load specific tab data
+  if (tabId === 'memory') {
+    loadMemoryList();
+  } else if (tabId === 'obsidian') {
+    loadObsidianFiles();
+  }
+}
+
+// ── RAG MEMORY EDITOR ────────────────────────────────────────────────────────
+async function loadMemoryList() {
+  const tbody = document.getElementById('rag-table-body');
+  tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--dim);padding:20px;">Lade Gedächtnisdaten...</td></tr>';
+  
+  try {
+    const res = await fetch('/api/memory/list');
+    const data = await res.json();
+    tbody.innerHTML = '';
+    
+    if (data.facts && data.facts.length > 0) {
+      data.facts.forEach(f => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td style="font-family:var(--font-mono);color:var(--kkeey-orange-soft);font-size:11px;">[${escHTML(f.category)}]</td>
+          <td style="line-height:1.4;">${escHTML(f.content)}</td>
+          <td style="text-align:center;font-family:var(--font-mono);color:var(--kkeey-cyan-core);">${f.importance.toFixed(1)}</td>
+          <td style="text-align:center;">
+            <div class="rag-actions" style="justify-content:center;">
+              <button onclick="editFact(${f.id}, '${escHTML(f.category)}', '${escHTML(f.content.replace(/'/g, "\\'"))}', ${f.importance})" class="action-btn edit">Edit</button>
+              <button onclick="deleteFact(${f.id})" class="action-btn delete">Löschen</button>
+            </div>
+          </td>
+        `;
+        tbody.appendChild(tr);
+      });
+    } else {
+      tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--dim);padding:20px;">Keine Fakten in der Datenbank vorhanden.</td></tr>';
+    }
+  } catch (err) {
+    console.error('Failed to load memory list:', err);
+    tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:#e74c3c;padding:20px;">Fehler beim Laden.</td></tr>';
+  }
+}
+
+async function createNewFact() {
+  const cat = document.getElementById('new-fact-cat').value;
+  const content = document.getElementById('new-fact-content').value.trim();
+  const imp = parseFloat(document.getElementById('new-fact-importance').value);
+  
+  if (!content) return;
+  
+  try {
+    const res = await fetch('/api/memory/create', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ category: cat, content: content, importance: imp })
+    });
+    if (res.ok) {
+      document.getElementById('new-fact-content').value = '';
+      loadMemoryList();
+      // Sync global status badge count
+      refreshGlobalMemoryCount();
+    }
+  } catch (err) {
+    console.error('Failed to create fact:', err);
+  }
+}
+
+async function editFact(id, currentCat, currentContent, currentImp) {
+  const newContent = prompt("Fakt editieren:", currentContent);
+  if (newContent === null) return;
+  const trimmed = newContent.trim();
+  if (!trimmed) return;
+  
+  try {
+    const res = await fetch('/api/memory/update', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: id, category: currentCat, content: trimmed, importance: currentImp })
+    });
+    if (res.ok) {
+      loadMemoryList();
+    }
+  } catch (err) {
+    console.error('Failed to update fact:', err);
+  }
+}
+
+async function deleteFact(id) {
+  if (!confirm("Fakt wirklich löschen?")) return;
+  try {
+    const res = await fetch(`/api/memory/delete/${id}`, { method: 'DELETE' });
+    if (res.ok) {
+      loadMemoryList();
+      refreshGlobalMemoryCount();
+    }
+  } catch (err) {
+    console.error('Failed to delete fact:', err);
+  }
+}
+
+async function refreshGlobalMemoryCount() {
+  try {
+    const mem = await(await fetch('/api/memory')).json();
+    document.getElementById('memory-count').textContent =
+      `${mem.factCount} Facts | SQLite${mem.driveConnected?' + Drive':''}`;
+  } catch(e) {}
+}
+
+// ── OBSIDIAN CHARACTER ARCHIV ────────────────────────────────────────────────
+async function loadObsidianFiles() {
+  const listEl = document.getElementById('obsidian-files-list');
+  listEl.innerHTML = '<div style="padding:15px;color:var(--dim);font-family:var(--font-mono);font-size:10px;">Lade Archiv...</div>';
+  
+  try {
+    const res = await fetch('/api/obsidian/files');
+    const data = await res.json();
+    listEl.innerHTML = '';
+    
+    if (data.files && data.files.length > 0) {
+      data.files.forEach(f => {
+        const div = document.createElement('div');
+        div.className = 'obsidian-file-item';
+        if (currentEditingObsidianPath === f.path) div.classList.add('active');
+        div.textContent = f.name;
+        div.onclick = () => openObsidianFile(f.path, f.name);
+        listEl.appendChild(div);
+      });
+    } else {
+      listEl.innerHTML = '<div style="padding:15px;color:var(--dim);font-family:var(--font-mono);font-size:10px;">Keine Markdown-Dateien gefunden.</div>';
+    }
+  } catch (err) {
+    console.error('Failed to load obsidian files:', err);
+    listEl.innerHTML = '<div style="padding:15px;color:#e74c3c;font-family:var(--font-mono);font-size:10px;">Ladefehler</div>';
+  }
+}
+
+async function openObsidianFile(path, name) {
+  currentEditingObsidianPath = path;
+  
+  // Highlight active item
+  document.querySelectorAll('.obsidian-file-item').forEach(item => {
+    item.classList.remove('active');
+    if (item.textContent === name) item.classList.add('active');
+  });
+
+  const textarea = document.getElementById('obsidian-editor');
+  const status = document.getElementById('editor-status');
+  const saveBtn = document.getElementById('editor-save-btn');
+  
+  textarea.value = 'Lade Dateiinhalt...';
+  textarea.disabled = true;
+  saveBtn.disabled = true;
+  status.textContent = name;
+  
+  try {
+    const res = await fetch(`/api/obsidian/file?path=${encodeURIComponent(path)}`);
+    const data = await res.json();
+    textarea.value = data.content;
+    textarea.disabled = false;
+    saveBtn.disabled = false;
+  } catch (err) {
+    console.error('Failed to open obsidian file:', err);
+    textarea.value = 'Fehler beim Laden der Datei.';
+  }
+}
+
+async function saveObsidianFile() {
+  if (!currentEditingObsidianPath) return;
+  const textarea = document.getElementById('obsidian-editor');
+  const content = textarea.value;
+  const saveBtn = document.getElementById('editor-save-btn');
+  
+  saveBtn.disabled = true;
+  saveBtn.textContent = 'Speichert...';
+  
+  try {
+    const res = await fetch('/api/obsidian/file', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: currentEditingObsidianPath, content: content })
+    });
+    
+    if (res.ok) {
+      alert("Datei erfolgreich gespeichert und RAG-Neuindizierung im Hintergrund gestartet!");
+      refreshGlobalMemoryCount();
+    } else {
+      alert("Fehler beim Speichern der Datei.");
+    }
+  } catch (err) {
+    console.error('Failed to save obsidian file:', err);
+    alert("Netzwerkfehler beim Speichern.");
+  } finally {
+    saveBtn.disabled = false;
+    saveBtn.textContent = 'Speichern & RAG-Rebuild';
+  }
+}
+
+// ── AI SYNC CENTER ───────────────────────────────────────────────────────────
+async function processSyncContext() {
+  const text = document.getElementById('sync-raw-text').value.trim();
+  const btn = document.getElementById('sync-btn');
+  const logPane = document.getElementById('sync-log-pane');
+  
+  if (!text) return;
+  
+  btn.disabled = true;
+  btn.textContent = 'Synchronisiere...';
+  logPane.style.display = 'block';
+  logPane.innerHTML = '<span style="color:var(--kkeey-cyan-core)">Analysiere Text und extrahiere kognitiven Kontext...</span>\n';
+  
+  try {
+    const res = await fetch('/api/context/sync', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ raw_text: text })
+    });
+    
+    const data = await res.json();
+    if (res.ok) {
+      logPane.innerHTML += `\n<span style="color:var(--energy-high)">✓ Kognitive Extraktion erfolgreich abgeschlossen!</span>\n`;
+      logPane.innerHTML += `\n<span style="color:var(--kkeey-orange-soft)">Erstellte RAG-Fakten: ${data.added_facts.length}</span>\n`;
+      data.added_facts.forEach(f => {
+        logPane.innerHTML += `  • [${f.category}] ${f.content}\n`;
+      });
+      logPane.innerHTML += `\n<span style="color:var(--kkeey-cyan-ice)">Masterakten-Update:</span>\n`;
+      logPane.innerHTML += `  Desktop & iCloud Masterakte synchronisiert.\n`;
+      document.getElementById('sync-raw-text').value = '';
+      refreshGlobalMemoryCount();
+    } else {
+      logPane.innerHTML += `\n<span style="color:var(--energy-low)">✗ Fehler während der Synchronisation: ${data.detail || 'Unbekannter Fehler'}</span>\n`;
+    }
+  } catch (err) {
+    console.error('Failed to process context sync:', err);
+    logPane.innerHTML += `\n<span style="color:var(--energy-low)">✗ Netzwerkfehler beim Synchronisieren.</span>\n`;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Kontext analysieren & synchronisieren';
+  }
+}
+
+// ── SIMULATION CONTROL SETTINGS ──────────────────────────────────────────────
+async function loadSimSettings() {
+  try {
+    const res = await fetch('/api/simulation/settings');
+    const data = await res.json();
+    
+    document.getElementById('woop-toggle').checked = data.woopCoaching;
+    const energyVal = data.claireEnergy;
+    
+    const slider = document.getElementById('energy-override-slider');
+    if (energyVal < 0) {
+      slider.value = -1;
+      updateEnergySliderLabel(-1);
+    } else {
+      slider.value = Math.round(energyVal * 100);
+      updateEnergySliderLabel(slider.value);
+    }
+  } catch (err) {
+    console.warn('Failed to load simulation settings:', err);
+  }
+}
+
+function updateEnergySliderLabel(val) {
+  const lbl = document.getElementById('energy-override-lbl');
+  if (parseInt(val) < 0) {
+    lbl.textContent = 'Claire-Energie (Auto)';
+  } else {
+    lbl.textContent = `Claire-Energie: ${(val/100).toFixed(2)}`;
+  }
+}
+
+async function updateSimSettings() {
+  const woop = document.getElementById('woop-toggle').checked;
+  const sliderVal = parseInt(document.getElementById('energy-override-slider').value);
+  const claireEnergy = sliderVal < 0 ? -1 : (sliderVal / 100);
+  
+  try {
+    await fetch('/api/simulation/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ woopCoaching: woop, claireEnergy: claireEnergy })
+    });
+  } catch (err) {
+    console.error('Failed to update simulation settings:', err);
+  }
+}
+
+
+// ══════════════════════════════════════════════════════════════════════════════
 // INIT
 // ══════════════════════════════════════════════════════════════════════════════
 
@@ -711,11 +1913,20 @@ async function init(){
   });
   document.getElementById('model-display').textContent=cfg.model;
 
+  // Sync Voice Select Event to config updates
+  voiceSel.onchange=async(e)=>{
+    await fetch('/api/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ voice: e.target.value })
+    });
+  };
+
   // Shader pills
   const pills=document.getElementById('shader-pills');
-  ['off','lattice','flux','synapse','warp','stream'].forEach(k=>{
+  ['off','liquid','lattice','flux','synapse','warp','stream'].forEach(k=>{
     const p=document.createElement('span');
-    p.className='shader-pill'+(k==='synapse'?' active':'');
+    p.className='shader-pill'+(k==='liquid'?' active':'');
     p.textContent=k==='off'?'Off':k.charAt(0).toUpperCase()+k.slice(1);
     p.onclick=()=>{
       pills.querySelectorAll('.shader-pill').forEach(x=>x.classList.remove('active'));
@@ -742,13 +1953,15 @@ async function init(){
   // Export
   document.getElementById('export-btn').onclick=()=>{
     const msgs=document.querySelectorAll('#transcript-scroll .msg');
-    let txt='';msgs.forEach(m=>{
+    let txt=`# Claire V2.5 Session-Protokoll\nDatum: ${new Date().toLocaleDateString('de-DE')} · Zeit: ${new Date().toLocaleTimeString('de-DE')}\n\n`;
+    msgs.forEach(m=>{
       const role=m.classList.contains('kev')?'Kev':'Claire';
-      txt+=role+': '+m.querySelector('.text').textContent+'\n';
+      txt+=`**${role}**: ${m.querySelector('.text').textContent}\n\n`;
     });
-    const blob=new Blob([txt],{type:'text/plain'});
+    const blob=new Blob([txt],{type:'text/markdown'});
     const a=document.createElement('a');a.href=URL.createObjectURL(blob);
-    a.download=`claire-transcript-${new Date().toISOString().slice(0,16)}.txt`;a.click();
+    a.download=`claire-session-${new Date().toISOString().slice(0,10)}-${new Date().toLocaleTimeString('de-DE').replace(/:/g, '-')}.md`;
+    a.click();
   };
 
   // Health badge
@@ -765,29 +1978,13 @@ async function init(){
       badge.textContent='Offline';
       badge.style.color='var(--energy-low)';badge.style.borderColor='rgba(231,76,60,0.3)';
     }
-  }catch(e){console.warn('Health fetch failed:',e)}
+  }catch(e){}
 
-  // Memory preload
-  try{
-    const mem=await(await fetch('/api/memory')).json();
-    document.getElementById('memory-count').textContent=
-      `${mem.factCount} Facts | SQLite${mem.driveConnected?' + Drive':''}`;
-    const scroll=document.getElementById('memory-scroll');
-    const cats=Object.entries(mem.categories);
-    if(cats.length){
-      cats.forEach(([cat,facts])=>{
-        const top3=facts.slice(0,3);
-        top3.forEach(f=>{
-          const div=document.createElement('div');div.className='mem-entry';
-          div.innerHTML=`<div class="mem-cat">[${escHTML(cat)}]</div>${escHTML(f.content)}`;
-          div.style.opacity='0.6';
-          scroll.appendChild(div);
-        });
-      });
-    }
-  }catch(e){console.warn('Memory preload failed:',e)}
+  // Load Simulation Settings & Memory Preload
+  loadSimSettings();
+  refreshGlobalMemoryCount();
 
-  // beforeunload — graceful WebSocket close (Tauri-ready)
+  // beforeunload — graceful WebSocket close
   window.addEventListener('beforeunload',()=>{
     if(ws&&ws.readyState===1)ws.close(1000,'page_unload');
     if(micStream)micStream.getTracks().forEach(t=>t.stop());
@@ -797,7 +1994,7 @@ async function init(){
 
   // Init visuals
   shInit();
-  shStart('synapse');
+  shStart('liquid');
   wfInit();
   wfDraw();
   drawEnergyArc(0.65);
