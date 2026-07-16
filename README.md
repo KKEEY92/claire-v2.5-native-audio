@@ -1,99 +1,130 @@
-# 🌌 Claire V2.5 – Next-Gen Conversational AI Monorepo
+<div align="center">
+  <h1>🌌 Claire V2.5</h1>
+  <p><b>Next-Gen Native Conversational AI & Realtime Voice Agent</b></p>
+  
+  [![Python](https://img.shields.io/badge/Python-3.12%2B-blue.svg?style=for-the-badge&logo=python)](https://www.python.org/)
+  [![Swift](https://img.shields.io/badge/Swift-5.0%2B-orange.svg?style=for-the-badge&logo=swift)](https://swift.org)
+  [![FastAPI](https://img.shields.io/badge/FastAPI-Framework-009688.svg?style=for-the-badge&logo=fastapi)](https://fastapi.tiangolo.com/)
+  [![LiveKit](https://img.shields.io/badge/LiveKit-WebRTC-red.svg?style=for-the-badge)](https://livekit.io/)
+  [![AI Status](https://img.shields.io/badge/Status-Production_Ready-success.svg?style=for-the-badge)]()
+</div>
 
-Willkommen im hochmodernen **Claire V2.5** Repository. Dieses Monorepo vereint die mächtige, echtzeitfähige Python-Backend-Infrastruktur mit den nativen, extrem performanten Apple-Clients (macOS & iOS) in einer harmonischen, agentischen Architektur.
+<br/>
 
-Dieses System wurde für **maximale Kognition, minimale Latenz und native Integration** entworfen.
+## 🎯 Executive Summary (Business Value)
+
+**Claire V2.5** is not just another chatbot—it is a fully integrated, scalable **Conversational AI System** designed for enterprise use-cases. By combining a low-latency Python backend (via LiveKit/WebRTC) with highly optimized native Apple clients (macOS & iOS), Claire delivers a seamless, human-like voice interaction experience.
+
+For businesses, this architecture enables:
+- **Ultra-Low Latency:** Real-time voice interaction (~200ms) over WebRTC.
+- **Stateful Memory:** Obsidian-style "Masterakte" long-term memory for contextual customer/user interactions.
+- **Cross-Platform Scalability:** A monorepo structure cleanly decoupling the AI backend from the native frontend apps.
+- **Emotional Intelligence:** Integrates advanced TTS (ElevenLabs/Cartesia) with real-time emotion mapping.
 
 ---
 
-## 🚀 Vision & Architektur
+## 🏗️ Enterprise Architecture
 
-Claire ist nicht einfach nur ein Chatbot – sie ist eine vollständig integrierte **Conversational AI Person**. Sie nutzt eine Obsidian-ähnliche Masterakte als Langzeitgedächtnis, analysiert neuen Kontext automatisch und spricht auf Deutsch mit lebensechter Stimmmodulation (inklusive Emotionen und Lachen über LiveKit & ElevenLabs/Cartesia).
+The system utilizes a modern, event-driven micro-architecture decoupled via WebSocket and WebRTC.
 
-Das Projekt ist als **Monorepo** strukturiert, das Backend und Frontend sauber trennt, aber sofort einsatzbereit koppelt.
+```mermaid
+graph TD
+    subgraph Frontend [Native Apple Clients]
+        macOS[macOS MenuBar App]
+        iOS[iOS Mobile App]
+    end
 
-### 📁 Verzeichnisstruktur
+    subgraph Backend [AI Infrastructure]
+        LK[LiveKit WebRTC Server]
+        Core[Claire AI Core Agent]
+        API[FastAPI Control Dashboard]
+        Mem[(Obsidian Memory Engine)]
+    end
+
+    macOS <-->|WebRTC Voice| LK
+    iOS <-->|WebRTC Voice| LK
+    
+    LK <-->|Audio Streams| Core
+    Core <-->|RAG & Context| Mem
+    API <-->|Socket.IO| Core
+```
+
+### 📁 Repository Structure
 
 ```text
 claire-v2.5-native-audio/
-│
-├── backend/                  # 🧠 Python KI-Backend & LiveKit WebRTC Server
-│   ├── claire.py             # Haupt-Agent (Voice, Vision, Context)
-│   ├── dashboard.py          # FastAPI & Socket.IO Dashboard-Server
-│   ├── persona.py            # Obsidian-Style Persona Manager & Masterakte-Extraktor
-│   └── static/               # Frontend Dashboard (HTML/JS/CSS)
-│
-├── apps-workspace/           # 🍏 Native Apple Clients (Xcode 27)
-│   ├── Claire.xcworkspace    # Gemeinsamer Workspace für iOS & macOS
-│   ├── ClairemacOS/          # Native macOS MenuBar App (SwiftUI)
-│   └── ClaireiOS/            # Native iOS App (SwiftUI)
-│
-├── docs/                     # 📚 System-Blaupausen & Architektur-Dokumentation
-│   └── system_blueprint.md   # WICHTIG: Die Master-Referenz für KI-Agenten
-│
-├── assets/                   # 🖼️ Icons, Logos, Persona-Bilder
-├── data/                     # 💾 Lokale Speicher für Kontexte, Erinnerungen & Logs
-└── scripts/                  # 🛠️ Nützliche Scripte (Start-Scripte, Utils)
+├── backend/                  # 🧠 Python AI Backend (LiveKit, FastAPI, LLM Routing)
+│   ├── claire.py             # Main Voice/Vision/Context Agent
+│   ├── dashboard.py          # FastAPI & Socket.IO Dashboard
+│   └── persona.py            # RAG & Memory Manager
+├── apps-workspace/           # 🍏 Native Apple Clients (Xcode)
+│   ├── ClairemacOS/          # SwiftUI macOS MenuBar Client
+│   └── ClaireiOS/            # SwiftUI iOS Mobile Client
+└── docs/                     # 📚 System Blueprints & API Docs
 ```
 
 ---
 
-## 🛠️ Tech Stack & Dependencies
+## 🛠️ Technology Stack
 
-- **Backend:** Python 3.12+, FastAPI, LiveKit Agents Framework, OpenAI (GPT-4o), ElevenLabs (TTS), asyncio.
-- **Frontend (Dashboard):** HTML5, Vanilla JS, Tailwind CSS, Socket.IO.
-- **Native Clients:** Swift 5+, SwiftUI, Xcode 27+, LiveKit Swift SDK (geplant).
-- **Datenhaltung:** JSON/Markdown basierte lokale "Masterakte" (Obsidian-Style) für Personas und Erinnerungen.
+| Layer | Technologies |
+|-------|-------------|
+| **AI & LLM** | OpenAI GPT-4o, Prompt Engineering, RAG |
+| **Voice & Audio** | LiveKit Agents Framework, WebRTC, ElevenLabs / Cartesia TTS |
+| **Backend API** | Python 3.12+, FastAPI, Uvicorn, asyncio, Socket.IO |
+| **Native Clients**| Swift 5+, SwiftUI, Xcode, Apple AVFoundation |
+| **Data & Memory** | JSON/Markdown Local Knowledge Graphs (Obsidian-style) |
 
 ---
 
-## 🏁 Quick Start
+## 🚀 Quick Start Guide
 
-### 1️⃣ Backend Starten
+### 1️⃣ Backend Setup (AI Core)
 
-Das Backend erfordert LiveKit Keys und API Keys. Stelle sicher, dass du in deiner Umgebungsvariable oder `.env` Datei alle nötigen Keys gesetzt hast.
+Requires LiveKit keys and AI provider API keys configured via environment variables (`.env`).
 
 ```bash
 cd backend
 python3 -m venv venv
 source venv/bin/activate
-pip install -r requirements.txt # (Stelle sicher, dass requirements installiert sind)
+pip install -r requirements.txt
 
-# Starte den KI-Agenten:
+# 1. Start the LiveKit Voice Agent
 python3 claire.py start
 
-# Starte in einem separaten Terminal das Control-Dashboard:
+# 2. Start the Control Dashboard (in a separate terminal)
 python3 dashboard.py
 ```
+> The Control Dashboard is available at `http://localhost:8000`
 
-Das Dashboard erreichst du nun unter: `http://localhost:8000`
-
-### 2️⃣ Native Apps Starten (macOS / iOS)
-
-Öffne den Workspace in Xcode:
+### 2️⃣ Native Clients Setup (macOS / iOS)
 
 ```bash
 open apps-workspace/Claire.xcworkspace
 ```
-
-1. Wähle das Target `ClairemacOS` oder `ClaireiOS`.
-2. Klicke auf **Run** (⌘ + R).
-
----
-
-## 🧠 Das Control Dashboard
-
-Das Control Dashboard ist dein Command Center für Claire. Es bietet:
-- **Obsidian Persona Archiv:** Lege Charakterzüge, Erinnerungen und Hintergrundgeschichten in einem strukturierten Markdown-Format an.
-- **Context Extractor:** Füge Rohtexte ein. Das System extrahiert automatisch wichtiges Wissen und fügt es in die Masterakte der jeweiligen Persona ein.
-- **Voice & TTS Controls:** Passe Claires Stimme (z.B. Emotion, Geschwindigkeit) in Echtzeit an.
-- **Recording & Export:** Schneide Gespräche mit und exportiere Logs zur späteren Analyse.
+1. Select target `ClairemacOS` or `ClaireiOS` in Xcode.
+2. Build and Run (`⌘ + R`).
 
 ---
 
-## 📜 Agentic Blueprint
+## 🧠 Advanced Features: The Control Dashboard
 
-Dieses Repository wurde in Zusammenarbeit mit **Antigravity** (Agentic AI) erstellt.  
-Wenn ein zukünftiger KI-Agent dieses System erweitern soll, weise ihn an, die Datei `docs/system_blueprint.md` zu lesen. Sie enthält alle Systemabhängigkeiten, Design-Philosophien und Protokolle.
+The included Control Dashboard acts as the Command Center for AI tuning:
+- **Obsidian Persona Archive:** Inject character traits and background stories via structured Markdown.
+- **Context Extractor:** Automatically parse raw text into structural knowledge for the AI's long-term memory.
+- **Real-Time Voice Controls:** Adjust speech rate, emotional intonation, and interruptions on the fly.
+- **Audit & Logging:** Export conversation logs for compliance or fine-tuning.
 
-*“Built with 🧠 and ⚡️ by KKI Systems & Antigravity”*
+---
+
+## 💼 About the Architect (Available for Freelance)
+
+Built and architected by **Kevin Kuck**. 
+I specialize in bridging the gap between cutting-edge Artificial Intelligence and polished, native Apple ecosystems. 
+
+**Looking for an expert to build or scale your next AI product?**
+- 👨‍💻 **Role:** IT-Support Specialist | AI Architect | Apple Developer
+- 📄 **Interactive CV & Portfolio:** [CV_IT_KKEEY](https://github.com/KKEEY92/CV_IT_KKEEY)
+- 🤝 **Hire Me:** Available for freelance consulting, architecture design, and full-stack AI development.
+
+> *"Turning complex AI research into robust, user-facing enterprise products."*
