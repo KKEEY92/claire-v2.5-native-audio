@@ -124,7 +124,9 @@ I specialize in bridging the gap between cutting-edge Artificial Intelligence an
 
 **Looking for an expert to build or scale your next AI product?**
 - 👨‍💻 **Role:** IT-Support Specialist | AI Architect | Apple Developer
-- 📄 **Interactive CV & Portfolio:** [CV_IT_KKEEY](https://github.com/KKEEY92/CV_IT_KKEEY)
+- 📄 **Interactive CV & Portfolio:** [CV_IT_KKEEY](https://kkeey92.github.io/CV_IT_KKEEY/)
 - 🤝 **Hire Me:** Available for freelance consulting, architecture design, and full-stack AI development.
 
 > *"Turning complex AI research into robust, user-facing enterprise products."*
+- 👔 **LinkedIn:** [Kevin Kuck](https://www.linkedin.com/in/kevin-kuck-it)
+- 🦊 **GitLab:** [KKEEY92](https://gitlab.com/KKEEY92)
